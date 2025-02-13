@@ -1,44 +1,52 @@
+from typing import List, Optional
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flasgger import Swagger
-from flask_cors import CORS  # Importiere CORS
+from flask_cors import CORS
 import yaml
+
+# Für den neuen 2.0-Stil
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///storage.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Aktivieren von CORS für alle Routen
+# CORS konfigurieren
 CORS(app)
-# Aktivieren von CORS nur für einen bestimmten Ursprung
 CORS(app, origins=["http://localhost:3000"])
+
 # Swagger initialisieren
 with open("swagger.yaml", "r") as f:
     swagger_template = yaml.safe_load(f)
-
 swagger = Swagger(app, template=swagger_template)
 
 db = SQLAlchemy(app)
 
 
+### MODELLDEFINITIONEN im SQLAlchemy 2.0-Stil ###
+
+
 class StorageItem(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False, unique=True)
-    amount = db.Column(db.Integer, nullable=False)
-    categories = db.Column(db.String(500))
-    lowestAmount = db.Column(db.Integer, nullable=False)
-    midAmount = db.Column(db.Integer, nullable=False)
-    unit = db.Column(db.String(50), nullable=False)
-    packageQuantity = db.Column(db.Integer)
-    packageUnit = db.Column(db.String(50))
-    storageLocation = db.Column(db.String(100), nullable=False)
-    icon = db.Column(db.String(200))
-    # Cascade-Delete: Das einzelne Nutrient-Objekt wird mit gelöscht.
-    nutrient = db.relationship(
+    __tablename__ = "storage_item"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(db.String(100), nullable=False)
+    amount: Mapped[int] = mapped_column(db.Integer, nullable=False)
+    categories: Mapped[Optional[str]] = mapped_column(db.String(500))
+    lowestAmount: Mapped[int] = mapped_column(db.Integer, nullable=False)
+    midAmount: Mapped[int] = mapped_column(db.Integer, nullable=False)
+    unit: Mapped[str] = mapped_column(db.String(50), nullable=False)
+    packageQuantity: Mapped[Optional[int]] = mapped_column(db.Integer)
+    packageUnit: Mapped[Optional[str]] = mapped_column(db.String(50))
+    storageLocation: Mapped[str] = mapped_column(db.String(100), nullable=False)
+    icon: Mapped[Optional[str]] = mapped_column(db.String(200))
+
+    # Eine 1:1-Beziehung zu Nutrient (Cascade-Delete)
+    nutrient: Mapped[Optional["Nutrient"]] = relationship(
         "Nutrient",
         uselist=False,
-        backref="storage_item",
-        lazy=True,
+        back_populates="storage_item",
         cascade="all, delete-orphan",
     )
 
@@ -56,8 +64,8 @@ class StorageItem(db.Model):
         lowestAmount: int,
         midAmount: int,
         unit: str,
-        packageQuantity: int | None = None,
-        packageUnit: str | None = None,
+        packageQuantity: Optional[int] = None,
+        packageUnit: Optional[str] = None,
         storageLocation: str = "",
         icon: str = "",
     ):
@@ -74,16 +82,26 @@ class StorageItem(db.Model):
 
 
 class Nutrient(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    description = db.Column(db.String(200), nullable=False)
-    unit = db.Column(db.String(50), nullable=False)
-    amount = db.Column(db.Float, nullable=False)
-    storage_item_id = db.Column(
+    __tablename__ = "nutrient"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    description: Mapped[str] = mapped_column(db.String(200), nullable=False)
+    unit: Mapped[str] = mapped_column(db.String(50), nullable=False)
+    amount: Mapped[float] = mapped_column(db.Float, nullable=False)
+    storage_item_id: Mapped[int] = mapped_column(
         db.Integer, db.ForeignKey("storage_item.id"), nullable=False
     )
-    # Cascade-Delete für NutrientValue-Einträge
-    values = db.relationship(
-        "NutrientValue", backref="nutrient", lazy=True, cascade="all, delete-orphan"
+
+    # Rückbeziehung zum zugehörigen StorageItem
+    storage_item: Mapped["StorageItem"] = relationship(
+        "StorageItem", back_populates="nutrient"
+    )
+
+    # Eine 1:n-Beziehung zu NutrientValue (Cascade-Delete)
+    values: Mapped[List["NutrientValue"]] = relationship(
+        "NutrientValue",
+        back_populates="nutrient",
+        cascade="all, delete-orphan",
     )
 
     def __init__(
@@ -96,30 +114,44 @@ class Nutrient(db.Model):
 
 
 class NutrientValue(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    color = db.Column(db.String(50))
-    nutrient_id = db.Column(db.Integer, db.ForeignKey("nutrient.id"), nullable=False)
-    # Cascade-Delete für NutrientType-Einträge
-    values = db.relationship(
+    __tablename__ = "nutrient_value"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(db.String(100), nullable=False)
+    color: Mapped[Optional[str]] = mapped_column(db.String(50))
+    nutrient_id: Mapped[int] = mapped_column(
+        db.Integer, db.ForeignKey("nutrient.id"), nullable=False
+    )
+
+    # Rückbeziehung zum zugehörigen Nutrient
+    nutrient: Mapped["Nutrient"] = relationship("Nutrient", back_populates="values")
+
+    # 1:n-Beziehung zu NutrientType (Cascade-Delete)
+    values: Mapped[List["NutrientType"]] = relationship(
         "NutrientType",
-        backref="nutrient_value",
-        lazy=True,
+        back_populates="nutrient_value",
         cascade="all, delete-orphan",
     )
 
-    def __init__(self, name: str, color: str | None, nutrient_id: int):
+    def __init__(self, name: str, color: Optional[str], nutrient_id: int):
         self.name = name
         self.color = color
         self.nutrient_id = nutrient_id
 
 
 class NutrientType(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    typ = db.Column(db.String(50), nullable=False)
-    value = db.Column(db.Float, nullable=False)
-    nutrient_value_id = db.Column(
+    __tablename__ = "nutrient_type"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    typ: Mapped[str] = mapped_column(db.String(50), nullable=False)
+    value: Mapped[float] = mapped_column(db.Float, nullable=False)
+    nutrient_value_id: Mapped[int] = mapped_column(
         db.Integer, db.ForeignKey("nutrient_value.id"), nullable=False
+    )
+
+    # Rückbeziehung zum zugehörigen NutrientValue
+    nutrient_value: Mapped["NutrientValue"] = relationship(
+        "NutrientValue", back_populates="values"
     )
 
     def __init__(self, typ: str, value: float, nutrient_value_id: int):
@@ -129,43 +161,56 @@ class NutrientType(db.Model):
 
 
 class Category(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
+    __tablename__ = "category"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(db.String(100), unique=True, nullable=False)
 
     def __init__(self, name: str):
         self.name = name
 
 
 class StorageLocation(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
+    __tablename__ = "storage_location"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(db.String(100), unique=True, nullable=False)
 
     def __init__(self, name: str):
         self.name = name
 
 
 class ItemUnit(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)
+    __tablename__ = "item_unit"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(db.String(50), unique=True, nullable=False)
 
     def __init__(self, name: str):
         self.name = name
 
 
 class PackageUnit(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)
+    __tablename__ = "package_unit"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(db.String(50), unique=True, nullable=False)
 
     def __init__(self, name: str):
         self.name = name
 
 
 class NutrientUnit(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)
+    __tablename__ = "nutrient_unit"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(db.String(50), unique=True, nullable=False)
 
     def __init__(self, name: str):
         self.name = name
+
+
+### REST-ENDPOINTS bleiben unverändert ###
 
 
 @app.route("/items/bulk", methods=["POST"])
@@ -175,7 +220,6 @@ def add_bulk_items():
         return jsonify({"error": "Invalid input data"}), 400
 
     items_to_add = []
-
     for item_data in data:
         if (
             "name" not in item_data
@@ -185,7 +229,6 @@ def add_bulk_items():
         ):
             return jsonify({"error": "Invalid input data for one or more items"}), 400
 
-        # Neues StorageItem erstellen
         new_item = StorageItem(
             name=item_data["name"],
             amount=item_data["amount"],
@@ -203,19 +246,23 @@ def add_bulk_items():
     db.session.add_all(items_to_add)
     db.session.flush()  # IDs vergeben
 
-    # Optional: Falls Nutrient-Daten in der Anfrage enthalten sind, hinzufügen.
-    # Hier wird davon ausgegangen, dass nutrient als einzelnes Objekt in der Anfrage übergeben wird.
     for item_data in data:
         new_item = StorageItem.query.filter_by(
-            name=item_data["name"], unit=item_data["unit"]
+            name=item_data["name"],
+            storageLocation=item_data["storageLocation"],
+            unit=item_data["unit"],
         ).first()
+
+        if new_item is None:
+            return jsonify({"error": f"Item {item_data['name']} not found."}), 404
+
         if "nutrients" in item_data and item_data["nutrients"]:
-            nutrient_data = item_data["nutrients"]  # nutrient als Objekt
+            nutrient_data = item_data["nutrients"]
             nutrient = Nutrient(
                 description=nutrient_data["description"],
                 unit=nutrient_data["unit"],
                 amount=nutrient_data["amount"],
-                storage_item_id=new_item.id,  # type: ignore
+                storage_item_id=new_item.id,
             )
             db.session.add(nutrient)
             db.session.flush()
@@ -236,7 +283,6 @@ def add_bulk_items():
                     db.session.add(nutrient_type)
 
     db.session.commit()
-
     return jsonify({"message": "Items added successfully"}), 201
 
 
@@ -309,8 +355,25 @@ def add_item():
         or "amount" not in data
         or "unit" not in data
         or "storageLocation" not in data
+        or data["name"] == ""
+        or data["amount"] == ""
+        or data["unit"] == ""
+        or data["storageLocation"] == ""
     ):
         return jsonify({"error": "Invalid input data"}), 400
+
+    duplicate_item = StorageItem.query.filter_by(
+        name=data["name"], storageLocation=data["storageLocation"], unit=data["unit"]
+    ).first()
+    if duplicate_item:
+        return (
+            jsonify(
+                {
+                    "error": "Item with the same name, storageLocation, and unit already exists."
+                }
+            ),
+            409,
+        )
 
     new_item = StorageItem(
         name=data["name"],
@@ -328,7 +391,7 @@ def add_item():
     db.session.flush()  # new_item.id verfügbar
 
     if "nutrients" in data and data["nutrients"]:
-        nutrient_data = data["nutrients"]  # nutrient als einzelnes Objekt
+        nutrient_data = data["nutrients"]
         nutrient = Nutrient(
             description=nutrient_data["description"],
             unit=nutrient_data["unit"],
@@ -362,7 +425,7 @@ def update_item(item_id):
     if not data:
         return jsonify({"error": "Invalid input data"}), 400
 
-    item = StorageItem.query.get(item_id)
+    item = db.session.get(StorageItem, item_id)
     if not item:
         return jsonify({"error": "Item not found"}), 404
 
@@ -384,7 +447,7 @@ def update_item(item_id):
 
 @app.route("/items/<int:item_id>", methods=["GET"])
 def get_item(item_id):
-    item = StorageItem.query.get(item_id)
+    item = db.session.get(StorageItem, item_id)
     if not item:
         return jsonify({"error": "Item not found"}), 404
 
@@ -433,43 +496,50 @@ def get_item(item_id):
 @app.route("/items/<int:item_id>/nutrients", methods=["PUT"])
 def update_nutrients(item_id):
     data = request.get_json()
-    if not data or "nutrients" not in data:
-        return jsonify({"error": "No nutrients data provided"}), 400
+    if not data:
+        return jsonify({"error": "Invalid input data"}), 400
 
-    item = StorageItem.query.get(item_id)
+    nutrient_data = data
+    item = db.session.get(StorageItem, item_id)
     if not item:
         return jsonify({"error": "Item not found"}), 404
 
-    # Lösche das bestehende Nutrient-Objekt (und dessen untergeordnete Einträge)
-    if item.nutrient:
-        db.session.delete(item.nutrient)
+    nutrient = item.nutrient
+
+    if nutrient is None:
+        nutrient = Nutrient(
+            description=nutrient_data.get("description", ""),
+            unit=nutrient_data.get("unit", ""),
+            amount=nutrient_data.get("amount", 0.0),
+            storage_item_id=item.id,
+        )
+        db.session.add(nutrient)
+        db.session.flush()
+    else:
+        nutrient.description = nutrient_data.get("description", nutrient.description)
+        nutrient.unit = nutrient_data.get("unit", nutrient.unit)
+        nutrient.amount = nutrient_data.get("amount", nutrient.amount)
+
+        for nv in list(nutrient.values):
+            db.session.delete(nv)
         db.session.flush()
 
-    # Füge das neue Nutrient-Objekt hinzu
-    nutrient_data = data["nutrients"]
-    nutrient = Nutrient(
-        description=nutrient_data["description"],
-        unit=nutrient_data["unit"],
-        amount=nutrient_data["amount"],
-        storage_item_id=item.id,
-    )
-    db.session.add(nutrient)
-    db.session.flush()
-    for value_data in nutrient_data.get("values", []):
-        nutrient_value = NutrientValue(
+    incoming_values = nutrient_data.get("values", [])
+    for value_data in incoming_values:
+        nv = NutrientValue(
             name=value_data["name"],
             color=value_data.get("color"),
             nutrient_id=nutrient.id,
         )
-        db.session.add(nutrient_value)
+        db.session.add(nv)
         db.session.flush()
         for type_data in value_data.get("values", []):
-            nutrient_type = NutrientType(
+            nt = NutrientType(
                 typ=type_data["typ"],
                 value=type_data["value"],
-                nutrient_value_id=nutrient_value.id,
+                nutrient_value_id=nv.id,
             )
-            db.session.add(nutrient_type)
+            db.session.add(nt)
 
     db.session.commit()
     return jsonify({"message": "Nutrients updated successfully"}), 200
