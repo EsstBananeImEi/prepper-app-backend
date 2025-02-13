@@ -38,6 +38,10 @@ paths:
           description: "Invalid input data"
           schema:
             $ref: "#/definitions/Error"
+        "409":
+          description: "Conflict - duplicate item exists"
+          schema:
+            $ref: "#/definitions/Error"
 
   /items:
     get:
@@ -76,6 +80,10 @@ paths:
                 type: string
         "400":
           description: "Invalid input data"
+          schema:
+            $ref: "#/definitions/Error"
+        "409":
+          description: "Item with the same name, storageLocation, and unit already exists."
           schema:
             $ref: "#/definitions/Error"
 
@@ -145,14 +153,7 @@ paths:
           description: "Die neuen Nährstoff-Daten für das Storage Item."
           required: true
           schema:
-            type: object
-            required:
-              - nutrients
-            properties:
-              nutrients:
-                type: array
-                items:
-                  $ref: "#/definitions/NutrientInput"
+            $ref: "#/definitions/NutrientInput"
       responses:
         "200":
           description: "Nutrients updated successfully"
@@ -162,7 +163,7 @@ paths:
               message:
                 type: string
         "400":
-          description: "No nutrients data provided"
+          description: "Invalid input data"
           schema:
             $ref: "#/definitions/Error"
         "404":
@@ -204,9 +205,7 @@ definitions:
       icon:
         type: string
       nutrients:
-        type: array
-        items:
-          $ref: "#/definitions/NutrientInput"
+        $ref: "#/definitions/NutrientInput"
 
   StorageItemUpdate:
     type: object
@@ -262,9 +261,7 @@ definitions:
       icon:
         type: string
       nutrients:
-        type: array
-        items:
-          $ref: "#/definitions/Nutrient"
+        $ref: "#/definitions/Nutrient"
 
   NutrientInput:
     type: object
@@ -277,8 +274,10 @@ definitions:
         type: string
       unit:
         type: string
+        description: "Einheit der Nährwertangaben (z.B. 'g' oder 'ml')."
       amount:
         type: number
+        description: "Bezugsmenge, z.B. 100 für 'pro 100g' bzw. 'pro 100ml'."
       values:
         type: array
         items:
@@ -336,6 +335,7 @@ definitions:
     properties:
       typ:
         type: string
+        description: "Angabe des Einheitentyps, z.B. 'kcal', 'KJ' oder 'g'."
       value:
         type: number
 
