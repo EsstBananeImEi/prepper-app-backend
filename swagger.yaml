@@ -1,0 +1,356 @@
+swagger: "2.0"
+info:
+  title: "Storage API"
+  version: "1.0.0"
+  description: "API zur Verwaltung von Storage Items inklusive zugehöriger Nährstoff-Daten."
+host: "localhost:5000"
+basePath: "/"
+schemes:
+  - "http"
+consumes:
+  - "application/json"
+produces:
+  - "application/json"
+
+paths:
+  /items/bulk:
+    post:
+      summary: "Add multiple storage items at once"
+      description: "Fügt mehrere Storage Items gleichzeitig hinzu, inklusive deren Nährstoffdaten, sofern vorhanden."
+      parameters:
+        - in: body
+          name: body
+          description: "Liste von Storage Items, die hinzugefügt werden sollen."
+          required: true
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/StorageItemInput"
+      responses:
+        "201":
+          description: "Items added successfully"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+        "400":
+          description: "Invalid input data"
+          schema:
+            $ref: "#/definitions/Error"
+
+  /items:
+    get:
+      summary: "Get all storage items"
+      description: "Gibt alle Storage Items zurück. Optional kann über den Query-Parameter `q` nach Namen gesucht werden."
+      parameters:
+        - in: query
+          name: q
+          description: "Suchbegriff, um Items anhand des Namens zu filtern."
+          required: false
+          type: string
+      responses:
+        "200":
+          description: "Liste der Storage Items"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/StorageItem"
+    post:
+      summary: "Add a new storage item"
+      description: "Fügt ein neues Storage Item hinzu. Optional können auch Nährstoff-Daten mitgesendet werden."
+      parameters:
+        - in: body
+          name: body
+          description: "Das hinzuzufügende Storage Item."
+          required: true
+          schema:
+            $ref: "#/definitions/StorageItemInput"
+      responses:
+        "201":
+          description: "Item added successfully"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+        "400":
+          description: "Invalid input data"
+          schema:
+            $ref: "#/definitions/Error"
+
+  /items/{item_id}:
+    put:
+      summary: "Update an existing storage item"
+      description: "Aktualisiert ein bestehendes Storage Item anhand der übergebenen ID."
+      parameters:
+        - name: item_id
+          in: path
+          description: "Die ID des zu aktualisierenden Storage Items."
+          required: true
+          type: integer
+        - in: body
+          name: body
+          description: "Die zu aktualisierenden Felder des Storage Items."
+          required: true
+          schema:
+            $ref: "#/definitions/StorageItemUpdate"
+      responses:
+        "200":
+          description: "Item updated successfully"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+        "400":
+          description: "Invalid input data"
+          schema:
+            $ref: "#/definitions/Error"
+        "404":
+          description: "Item not found"
+          schema:
+            $ref: "#/definitions/Error"
+    get:
+      summary: "Get a specific storage item by ID"
+      description: "Gibt ein spezifisches Storage Item zurück, basierend auf der übergebenen ID."
+      parameters:
+        - name: item_id
+          in: path
+          description: "Die ID des abzurufenden Storage Items."
+          required: true
+          type: integer
+      responses:
+        "200":
+          description: "Das Storage Item mit seinen Details"
+          schema:
+            $ref: "#/definitions/StorageItem"
+        "404":
+          description: "Item not found"
+          schema:
+            $ref: "#/definitions/Error"
+
+  /items/{item_id}/nutrients:
+    put:
+      summary: "Update the nutrients for a specific storage item"
+      description: "Aktualisiert die Nährstoff-Daten für das Storage Item mit der angegebenen ID. Bestehende Nährstoffdaten werden ersetzt."
+      parameters:
+        - name: item_id
+          in: path
+          description: "Die ID des Storage Items, dessen Nährstoff-Daten aktualisiert werden sollen."
+          required: true
+          type: integer
+        - in: body
+          name: body
+          description: "Die neuen Nährstoff-Daten für das Storage Item."
+          required: true
+          schema:
+            type: object
+            required:
+              - nutrients
+            properties:
+              nutrients:
+                type: array
+                items:
+                  $ref: "#/definitions/NutrientInput"
+      responses:
+        "200":
+          description: "Nutrients updated successfully"
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+        "400":
+          description: "No nutrients data provided"
+          schema:
+            $ref: "#/definitions/Error"
+        "404":
+          description: "Item not found"
+          schema:
+            $ref: "#/definitions/Error"
+
+definitions:
+  StorageItemInput:
+    type: object
+    required:
+      - name
+      - amount
+      - lowestAmount
+      - midAmount
+      - unit
+      - storageLocation
+    properties:
+      name:
+        type: string
+      amount:
+        type: integer
+      categories:
+        type: array
+        items:
+          type: string
+      lowestAmount:
+        type: integer
+      midAmount:
+        type: integer
+      unit:
+        type: string
+      packageQuantity:
+        type: integer
+      packageUnit:
+        type: string
+      storageLocation:
+        type: string
+      icon:
+        type: string
+      nutrients:
+        type: array
+        items:
+          $ref: "#/definitions/NutrientInput"
+
+  StorageItemUpdate:
+    type: object
+    properties:
+      name:
+        type: string
+      amount:
+        type: integer
+      categories:
+        type: array
+        items:
+          type: string
+      lowestAmount:
+        type: integer
+      midAmount:
+        type: integer
+      unit:
+        type: string
+      packageQuantity:
+        type: integer
+      packageUnit:
+        type: string
+      storageLocation:
+        type: string
+      icon:
+        type: string
+
+  StorageItem:
+    type: object
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      amount:
+        type: integer
+      categories:
+        type: array
+        items:
+          type: string
+      lowestAmount:
+        type: integer
+      midAmount:
+        type: integer
+      unit:
+        type: string
+      packageQuantity:
+        type: integer
+      packageUnit:
+        type: string
+      storageLocation:
+        type: string
+      icon:
+        type: string
+      nutrients:
+        type: array
+        items:
+          $ref: "#/definitions/Nutrient"
+
+  NutrientInput:
+    type: object
+    required:
+      - description
+      - unit
+      - amount
+    properties:
+      description:
+        type: string
+      unit:
+        type: string
+      amount:
+        type: number
+      values:
+        type: array
+        items:
+          $ref: "#/definitions/NutrientValueInput"
+
+  Nutrient:
+    type: object
+    properties:
+      id:
+        type: integer
+      description:
+        type: string
+      unit:
+        type: string
+      amount:
+        type: number
+      values:
+        type: array
+        items:
+          $ref: "#/definitions/NutrientValue"
+
+  NutrientValueInput:
+    type: object
+    required:
+      - name
+    properties:
+      name:
+        type: string
+      color:
+        type: string
+      values:
+        type: array
+        items:
+          $ref: "#/definitions/NutrientTypeInput"
+
+  NutrientValue:
+    type: object
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      color:
+        type: string
+      values:
+        type: array
+        items:
+          $ref: "#/definitions/NutrientType"
+
+  NutrientTypeInput:
+    type: object
+    required:
+      - typ
+      - value
+    properties:
+      typ:
+        type: string
+      value:
+        type: number
+
+  NutrientType:
+    type: object
+    properties:
+      id:
+        type: integer
+      typ:
+        type: string
+      value:
+        type: number
+
+  Error:
+    type: object
+    properties:
+      error:
+        type: string
