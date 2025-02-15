@@ -81,6 +81,21 @@ class StorageItem(db.Model):
         self.icon = icon
 
 
+class BasketItem(db.Model):
+    __tablename__ = "basket_item"
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(db.String(100), nullable=False)
+    amount: Mapped[int] = mapped_column(db.Integer, nullable=True)
+    categories: Mapped[Optional[str]] = mapped_column(db.String(500))
+    icon: Mapped[Optional[str]] = mapped_column(db.String(200))
+
+    def __init__(self, name: str, amount: int, categories: str, icon: str):
+        self.name = name
+        self.amount = amount
+        self.icon = icon
+        self.categories = categories
+
+
 class Nutrient(db.Model):
     __tablename__ = "nutrient"
 
@@ -210,7 +225,113 @@ class NutrientUnit(db.Model):
         self.name = name
 
 
-### REST-ENDPOINTS bleiben unverändert ###
+### ROUTENDEFINITIONEN ###
+
+
+@app.route("/basket", methods=["GET"])
+def get_basket():
+    items = db.session.query(BasketItem).all()
+    return (
+        jsonify(
+            [
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "amount": item.amount,
+                    "categories": item.categories.split(",") if item.categories else [],
+                    "icon": item.icon,
+                }
+                for item in items
+            ]
+        ),
+        200,
+        {"Content-Type": "application/json"},
+    )
+
+
+@app.route("/basket", methods=["POST"])
+def add_basket_item():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid input data"}), 400
+
+    item = db.session.query(BasketItem).filter_by(name=data["name"]).first()
+    if item is None:
+        item = BasketItem(
+            name=data["name"],
+            amount=1,
+            categories=",".join(data.get("categories", [])),
+            icon=data.get("icon"),
+        )
+        db.session.add(item)
+    else:
+        item.amount = item.amount + 1
+
+    db.session.commit()
+    # rückgabe des datensatzes als bestätigung
+    return (
+        jsonify(
+            {
+                "id": item.id,
+                "name": item.name,
+                "amount": item.amount,
+                "categories": item.categories.split(",") if item.categories else [],
+                "icon": item.icon,
+            }
+        ),
+        201,
+    )
+
+
+@app.route("/basket/<int:item_id>", methods=["PUT"])
+def update_basket_item(item_id):
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid input data"}), 400
+
+    item = db.session.get(BasketItem, item_id)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+
+    # increase amount
+    item.amount = data["amount"]
+    if int(item.amount) < 1:
+        db.session.delete(item)
+    db.session.commit()
+    return (
+        jsonify(
+            {
+                "id": item.id,
+                "name": item.name,
+                "amount": item.amount,
+                "categories": item.categories.split(",") if item.categories else [],
+                "icon": item.icon,
+            }
+        ),
+        201,
+    )
+
+
+@app.route("/basket/<int:item_id>", methods=["DELETE"])
+def delete_basket_item(item_id):
+    item = db.session.get(BasketItem, item_id)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+
+    db.session.delete(item)
+    db.session.commit()
+    return (
+        jsonify(
+            {
+                "id": item.id,
+                "name": item.name,
+                "amount": item.amount,
+                "categories": item.categories.split(",") if item.categories else [],
+                "icon": item.icon,
+            }
+        ),
+        200,
+    )
 
 
 @app.route("/items/bulk", methods=["POST"])
