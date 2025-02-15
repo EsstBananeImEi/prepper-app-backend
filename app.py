@@ -6,7 +6,6 @@ from flasgger import Swagger
 from flask_cors import CORS
 import serpapi
 import yaml
-import requests
 
 # Für den neuen 2.0-Stil
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -515,7 +514,7 @@ def add_item():
     )
 
     if not new_item.icon:
-        new_item.icon = get_icon_from_bing(new_item.name)
+        new_item.icon = get_icon_from_serpapi(new_item.name)
 
     db.session.add(new_item)
     db.session.flush()  # new_item.id verfügbar
@@ -572,7 +571,7 @@ def update_item(item_id):
     item.icon = data.get("icon", item.icon)
 
     if not item.icon:
-        item.icon = get_icon_from_bing(item.name)
+        item.icon = get_icon_from_serpapi(item.name)
 
     db.session.commit()
     return jsonify({"message": "Item updated successfully"}), 200
@@ -727,7 +726,7 @@ def get_nutrient_units():
 
 
 # function to search for an image of the item on bing
-def get_icon_from_bing(name):
+def get_icon_from_serpapi(name):
     params = {
         "engine": "google_images",
         "q": name,
