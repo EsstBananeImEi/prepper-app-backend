@@ -1,9 +1,12 @@
+import os
 from typing import List, Optional
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flasgger import Swagger
 from flask_cors import CORS
+import serpapi
 import yaml
+import requests
 
 # Für den neuen 2.0-Stil
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -228,6 +231,7 @@ class NutrientUnit(db.Model):
 ### ROUTENDEFINITIONEN ###
 
 
+## BASKET ##
 @app.route("/basket", methods=["GET"])
 def get_basket():
     items = db.session.query(BasketItem).all()
@@ -407,6 +411,7 @@ def add_bulk_items():
     return jsonify({"message": "Items added successfully"}), 201
 
 
+## ITEMS ##
 @app.route("/items", methods=["GET"])
 def get_items():
     searchstring = request.args.get("q", "")
@@ -508,6 +513,10 @@ def add_item():
         storageLocation=data["storageLocation"],
         icon=data.get("icon"),
     )
+
+    if not new_item.icon:
+        new_item.icon = get_icon_from_bing(new_item.name)
+
     db.session.add(new_item)
     db.session.flush()  # new_item.id verfügbar
 
@@ -562,6 +571,9 @@ def update_item(item_id):
     item.storageLocation = data.get("storageLocation", item.storageLocation)
     item.icon = data.get("icon", item.icon)
 
+    if not item.icon:
+        item.icon = get_icon_from_bing(item.name)
+
     db.session.commit()
     return jsonify({"message": "Item updated successfully"}), 200
 
@@ -614,6 +626,18 @@ def get_item(item_id):
     )
 
 
+@app.route("/items/<int:item_id>", methods=["DELETE"])
+def delete_item(item_id):
+    item = db.session.get(StorageItem, item_id)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+
+    db.session.delete(item)
+    db.session.commit()
+    return jsonify({"message": "Item deleted successfully"}), 200
+
+
+## NUTRIENTS ##
 @app.route("/items/<int:item_id>/nutrients", methods=["PUT"])
 def update_nutrients(item_id):
     data = request.get_json()
@@ -700,6 +724,18 @@ def get_nutrient_units():
         jsonify([{"id": nutrient.id, "name": nutrient.name} for nutrient in nutrients]),
         200,
     )
+
+
+# function to search for an image of the item on bing
+def get_icon_from_bing(name):
+    params = {
+        "engine": "google_images",
+        "q": name,
+        "api_key": os.getenv("SEARCH_API_KEY"),
+    }
+    search = serpapi.search(params)
+    # return the url of the first image
+    return search["images_results"][0].get("thumbnail")
 
 
 if __name__ == "__main__":

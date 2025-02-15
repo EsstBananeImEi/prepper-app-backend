@@ -2,7 +2,7 @@ swagger: "2.0"
 info:
   title: "Storage API"
   version: "1.0.0"
-  description: "API zur Verwaltung von Storage Items inklusive zugehöriger Nährstoff-Daten."
+  description: "API zur Verwaltung von Storage Items inklusive zugehöriger Nährstoff-Daten und Basket Items."
 host: "localhost:5000"
 basePath: "/"
 schemes:
@@ -13,6 +13,84 @@ produces:
   - "application/json"
 
 paths:
+  /basket:
+    get:
+      summary: "Get all basket items"
+      description: "Gibt alle Basket Items zurück."
+      responses:
+        "200":
+          description: "Liste der Basket Items"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/BasketItem"
+    post:
+      summary: "Add a basket item"
+      description: "Fügt ein neues Basket Item hinzu oder inkrementiert die Menge, falls das Item bereits existiert."
+      parameters:
+        - in: body
+          name: body
+          description: "Basket Item-Daten"
+          required: true
+          schema:
+            $ref: "#/definitions/BasketItemInput"
+      responses:
+        "201":
+          description: "Basket Item erfolgreich hinzugefügt"
+          schema:
+            $ref: "#/definitions/BasketItem"
+        "400":
+          description: "Ungültige Eingabedaten"
+          schema:
+            $ref: "#/definitions/Error"
+
+  /basket/{item_id}:
+    parameters:
+      - name: item_id
+        in: path
+        description: "Die ID des Basket Items"
+        required: true
+        type: integer
+    put:
+      summary: "Update a basket item"
+      description: "Aktualisiert die Menge (amount) eines Basket Items."
+      parameters:
+        - in: body
+          name: body
+          description: "Neuer Wert für amount"
+          required: true
+          schema:
+            type: object
+            properties:
+              amount:
+                type: integer
+                example: 2
+      responses:
+        "201":
+          description: "Basket Item erfolgreich aktualisiert"
+          schema:
+            $ref: "#/definitions/BasketItem"
+        "400":
+          description: "Ungültige Eingabedaten"
+          schema:
+            $ref: "#/definitions/Error"
+        "404":
+          description: "Item not found"
+          schema:
+            $ref: "#/definitions/Error"
+    delete:
+      summary: "Delete a basket item"
+      description: "Löscht ein Basket Item anhand der ID."
+      responses:
+        "200":
+          description: "Basket Item erfolgreich gelöscht"
+          schema:
+            $ref: "#/definitions/BasketItem"
+        "404":
+          description: "Item not found"
+          schema:
+            $ref: "#/definitions/Error"
+
   /items/bulk:
     post:
       summary: "Add multiple storage items at once"
@@ -348,6 +426,36 @@ definitions:
         type: string
       value:
         type: number
+
+  BasketItemInput:
+    type: object
+    required:
+      - name
+    properties:
+      name:
+        type: string
+      categories:
+        type: array
+        items:
+          type: string
+      icon:
+        type: string
+
+  BasketItem:
+    type: object
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      amount:
+        type: integer
+      categories:
+        type: array
+        items:
+          type: string
+      icon:
+        type: string
 
   Error:
     type: object
