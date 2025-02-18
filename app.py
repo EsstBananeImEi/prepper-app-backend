@@ -18,9 +18,14 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 CORS(app)
 CORS(app, origins=[os.getenv("FRONTEND_URL") or "http://localhost:3000"])
 
+app_url = os.getenv("APP_URL") or "http://localhost:5000"
+
 # Swagger initialisieren
 with open("swagger.yaml", "r") as f:
     swagger_template = yaml.safe_load(f)
+    swagger_template["host"] = app_url.split("://")[1]
+    swagger_template["schemes"] = [app_url.split("://")[0]]
+
 swagger = Swagger(app, template=swagger_template)
 
 db = SQLAlchemy(app)
@@ -740,4 +745,5 @@ def get_icon_from_serpapi(name):
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
+
     app.run(debug=True)

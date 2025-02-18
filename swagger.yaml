@@ -3,7 +3,7 @@ info:
   title: "Storage API"
   version: "1.0.0"
   description: "API zur Verwaltung von Storage Items inklusive zugehöriger Nährstoff-Daten und Basket Items."
-host: "localhost:5000"
+host: ""
 basePath: "/"
 schemes:
   - "http"
