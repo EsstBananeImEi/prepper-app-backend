@@ -16,7 +16,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # CORS konfigurieren
 CORS(app)
-CORS(app, origins=["http://localhost:3000"])
+CORS(app, origins=[os.getenv("FRONTEND_URL") or "http://localhost:3000"])
 
 # Swagger initialisieren
 with open("swagger.yaml", "r") as f:
