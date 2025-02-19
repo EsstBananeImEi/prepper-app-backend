@@ -1,11 +1,16 @@
+from functools import lru_cache
 import os
-from typing import List, Optional
+import time
+from typing import List, Optional, cast
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flasgger import Swagger
 from flask_cors import CORS
+from requests import HTTPError
 import serpapi
 import yaml
+from sqlalchemy.orm import Mapper
+from sqlalchemy import inspect
 
 # Für den neuen 2.0-Stil
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -348,40 +353,50 @@ def add_bulk_items():
     if not data:
         return jsonify({"error": "Invalid input data"}), 400
 
-    items_to_add = []
+    # Überprüfe die notwendigen Felder und sammle Mappings für StorageItem
+    mappings = []
     for item_data in data:
-        if (
-            "name" not in item_data
-            or "amount" not in item_data
-            or "unit" not in item_data
-            or "storageLocation" not in item_data
-        ):
+        required_keys = [
+            "name",
+            "amount",
+            "unit",
+            "storageLocation",
+            "lowestAmount",
+            "midAmount",
+        ]
+        if not all(key in item_data and item_data[key] != "" for key in required_keys):
             return jsonify({"error": "Invalid input data for one or more items"}), 400
 
-        new_item = StorageItem(
-            name=item_data["name"],
-            amount=item_data["amount"],
-            categories=",".join(item_data.get("categories", [])),
-            lowestAmount=item_data["lowestAmount"],
-            midAmount=item_data["midAmount"],
-            unit=item_data["unit"],
-            packageQuantity=item_data.get("packageQuantity"),
-            packageUnit=item_data.get("packageUnit"),
-            storageLocation=item_data["storageLocation"],
-            icon=item_data.get("icon"),
-        )
-        items_to_add.append(new_item)
+        mapping = {
+            "name": item_data["name"],
+            "amount": item_data["amount"],
+            "categories": ",".join(item_data.get("categories", [])),
+            "lowestAmount": item_data["lowestAmount"],
+            "midAmount": item_data["midAmount"],
+            "unit": item_data["unit"],
+            "packageQuantity": item_data.get("packageQuantity"),
+            "packageUnit": item_data.get("packageUnit"),
+            "storageLocation": item_data["storageLocation"],
+            "icon": item_data.get("icon"),
+        }
+        # Wenn kein Icon vorhanden, versuche es über SerpAPI zu ermitteln
+        if not mapping["icon"]:
+            mapping["icon"] = get_icon_from_serpapi(mapping["name"])
+        mappings.append(mapping)
 
-    db.session.add_all(items_to_add)
-    db.session.flush()  # IDs vergeben
+    # Phase 1: Bulk-Insert für StorageItem
+    mapper: Mapper = cast(Mapper, inspect(StorageItem))
+    db.session.bulk_insert_mappings(mapper, mappings)
 
+    db.session.commit()
+
+    # Phase 2: Verarbeite Nutrient-Daten für jedes Item
     for item_data in data:
         new_item = StorageItem.query.filter_by(
             name=item_data["name"],
             storageLocation=item_data["storageLocation"],
             unit=item_data["unit"],
         ).first()
-
         if new_item is None:
             return jsonify({"error": f"Item {item_data['name']} not found."}), 404
 
@@ -394,7 +409,8 @@ def add_bulk_items():
                 storage_item_id=new_item.id,
             )
             db.session.add(nutrient)
-            db.session.flush()
+            db.session.flush()  # Zuweisung der nutrient.id
+
             for value_data in nutrient_data.get("values", []):
                 nutrient_value = NutrientValue(
                     name=value_data["name"],
@@ -402,7 +418,8 @@ def add_bulk_items():
                     nutrient_id=nutrient.id,
                 )
                 db.session.add(nutrient_value)
-                db.session.flush()
+                db.session.flush()  # nutrient_value.id zuweisen
+
                 for type_data in value_data.get("values", []):
                     nutrient_type = NutrientType(
                         typ=type_data["typ"],
@@ -518,7 +535,7 @@ def add_item():
         icon=data.get("icon"),
     )
 
-    if not new_item.icon:
+    if not new_item.icon or new_item.icon == "":
         new_item.icon = get_icon_from_serpapi(new_item.name)
 
     db.session.add(new_item)
@@ -575,7 +592,7 @@ def update_item(item_id):
     item.storageLocation = data.get("storageLocation", item.storageLocation)
     item.icon = data.get("icon", item.icon)
 
-    if not item.icon:
+    if not item.icon or item.icon == "":
         item.icon = get_icon_from_serpapi(item.name)
 
     db.session.commit()
@@ -737,9 +754,11 @@ def get_icon_from_serpapi(name):
         "q": name,
         "api_key": os.getenv("SEARCH_API_KEY"),
     }
-    search = serpapi.search(params)
-    # return the url of the first image
-    return search["images_results"][0].get("thumbnail")
+    try:
+        search = serpapi.search(params)
+        return search["images_results"][0].get("thumbnail")
+    except HTTPError as e:
+        return ""
 
 
 if __name__ == "__main__":
