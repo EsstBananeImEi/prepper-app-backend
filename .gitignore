@@ -1,3 +1,4 @@
 /.env
 /.vscode
 /__pycache__
+*set_env_vars.sh
