@@ -977,7 +977,14 @@ def update_nutrients(item_id):
 @jwt_required()
 def get_categories():
     user_id = get_jwt_identity()
-    categories = db.session.query(Category).filter_by(user_id=user_id).all()
+    default_user = User.query.filter_by(username=os.getenv("DEFAULT_USERNAME")).first()
+    default_user_id = default_user.id if default_user else None
+
+    categories = (
+        db.session.query(Category)
+        .filter((Category.user_id == user_id) | (Category.user_id == default_user_id))
+        .all()
+    )
     return jsonify([{"id": cat.id, "name": cat.name} for cat in categories]), 200
 
 
