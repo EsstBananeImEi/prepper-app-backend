@@ -1,6 +1,6 @@
+import base64
 from functools import lru_cache
 import os
-import time
 from typing import List, Optional, cast
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
@@ -12,6 +12,7 @@ import yaml
 from sqlalchemy.orm import Mapper
 from sqlalchemy import inspect
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from flask_jwt_extended import (
     JWTManager,
     create_access_token,
@@ -29,6 +30,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = False  # 15 Minuten
 app.config["JWT_REFRESH_TOKEN_EXPIRES"] = 604800  # 7 Tage
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB Limit
 
 # CORS konfigurieren
 CORS(app)
@@ -55,7 +57,7 @@ class User(db.Model):
     username: Mapped[str] = mapped_column(db.String(80), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(db.String(128), nullable=False)
     email: Mapped[str] = mapped_column(db.String(120), unique=False)
-    image: Mapped[Optional[str]] = mapped_column(db.String(200))
+    image: Mapped[Optional[str]] = mapped_column(db.Text)
     admin: Mapped[bool] = mapped_column(db.Boolean, default=False)
     # Beziehungen zu den benutzerspezifischen Daten:
     storage_items: Mapped[List["StorageItem"]] = relationship(
@@ -324,10 +326,24 @@ def register():
     user = User(username=data["username"])
     user.set_email(data["email"].lower())
     user.set_password(data["password"])
-    user.image = data["image"] or None
+    user.image = data.get("image") or None
     db.session.add(user)
     db.session.commit()
-    return jsonify({"message": "User created"}), 201
+    access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
+    return (
+        jsonify(
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email.lower(),
+                "image": user.image,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+            }
+        ),
+        201,
+    )
 
 
 @app.route("/login", methods=["POST"])
@@ -359,7 +375,6 @@ def login():
 @jwt_required(refresh=True)
 def refresh():
     current_user = get_jwt_identity()
-    print(current_user)
     new_access_token = create_access_token(identity=str(current_user))
     return jsonify(access_token=new_access_token), 200
 
@@ -388,26 +403,49 @@ def get_user():
 @jwt_required()
 def update_user():
     user_id = get_jwt_identity()
+    print(user_id)
     data = request.get_json()
     if not data:
         return jsonify({"error": "Invalid input data"}), 400
+
     user = db.session.get(User, user_id)
     if not user:
         return jsonify({"error": "User not found"}), 404
-    user.username = data.get("username", user.username)
-    user.email = data.get("email", user.email).lower()
-    if (
-        "password" in data
-        and data["password"] != ""
-        and user.check_password(data["password"])
-    ):
-        user.set_password(data["password"])
-    else:
-        return jsonify({"error": "Invalid password"}), 400
-    user.image = data.get("image", user.image) or None
+
+    # Aktualisiere Standardfelder
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
+    if username:
+        user.username = username
+    if email:
+        user.email = email.lower()
+    if password:
+        user.set_password(password)
+
+    # Bild als Base64-String verarbeiten
+    image_data = data.get("image")
+    if image_data and isinstance(image_data, str):
+        if image_data.startswith("data:image"):
+            # Direkt in der Datenbank speichern (Base64-String inklusive Data-URL-Präfix)
+            user.image = image_data
+        else:
+            return jsonify({"error": "Invalid image format"}), 400
 
     db.session.commit()
-    return jsonify({"message": "User updated successfully"}), 200
+    return (
+        jsonify(
+            {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "image": user.image,
+                "access_token": create_access_token(identity=str(user.id)),
+                "refresh_token": create_refresh_token(identity=str(user.id)),
+            }
+        ),
+        200,
+    )
 
 
 @app.route("/user", methods=["DELETE"])
