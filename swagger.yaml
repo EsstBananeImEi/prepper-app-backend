@@ -2,7 +2,7 @@ swagger: "2.0"
 info:
   title: "Storage API"
   version: "1.0.0"
-  description: "API zur Verwaltung von Storage Items inklusive zugehöriger Nährstoff-Daten und Basket Items."
+  description: "API zur Verwaltung von Storage Items inklusive zugehöriger Nährstoff-Daten, Basket Items und User-Management."
 host: ""
 basePath: "/"
 schemes:
@@ -12,11 +12,125 @@ consumes:
 produces:
   - "application/json"
 
+securityDefinitions:
+  Bearer:
+    type: "apiKey"
+    name: "Authorization"
+    in: "header"
+    description: "JWT Authorization header using the Bearer scheme. Example: 'Authorization: Bearer {token}'"
+
 paths:
+  /register:
+    post:
+      summary: "Register a new user"
+      description: "Erstellt einen neuen Benutzer."
+      parameters:
+        - in: body
+          name: body
+          description: "Benutzerdaten für die Registrierung"
+          required: true
+          schema:
+            $ref: "#/definitions/UserInput"
+      responses:
+        "201":
+          description: "User created"
+          schema:
+            $ref: "#/definitions/SuccessMessage"
+        "400":
+          description: "Invalid input"
+          schema:
+            $ref: "#/definitions/Error"
+        "409":
+          description: "User already exists"
+          schema:
+            $ref: "#/definitions/Error"
+
+  /login:
+    post:
+      summary: "Login"
+      description: "Authentifiziert einen Benutzer und liefert einen JWT-Token zurück."
+      parameters:
+        - in: body
+          name: body
+          description: "Login-Daten"
+          required: true
+          schema:
+            $ref: "#/definitions/LoginInput"
+      responses:
+        "200":
+          description: "Login erfolgreich"
+          schema:
+            $ref: "#/definitions/TokenResponse"
+        "400":
+          description: "Invalid input"
+          schema:
+            $ref: "#/definitions/Error"
+        "401":
+          description: "Invalid credentials"
+          schema:
+            $ref: "#/definitions/Error"
+
+  /user:
+    get:
+      summary: "Get current user"
+      description: "Gibt den aktuell authentifizierten Benutzer zurück."
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: "Benutzerdaten"
+          schema:
+            $ref: "#/definitions/User"
+        "404":
+          description: "User not found"
+          schema:
+            $ref: "#/definitions/Error"
+    put:
+      summary: "Update user"
+      description: "Aktualisiert den aktuell authentifizierten Benutzer."
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          description: "Aktualisierte Benutzerdaten"
+          required: true
+          schema:
+            $ref: "#/definitions/UserUpdate"
+      responses:
+        "200":
+          description: "User updated successfully"
+          schema:
+            $ref: "#/definitions/SuccessMessage"
+        "400":
+          description: "Invalid input"
+          schema:
+            $ref: "#/definitions/Error"
+        "404":
+          description: "User not found"
+          schema:
+            $ref: "#/definitions/Error"
+    delete:
+      summary: "Delete user"
+      description: "Löscht den aktuell authentifizierten Benutzer."
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: "User deleted successfully"
+          schema:
+            $ref: "#/definitions/SuccessMessage"
+        "404":
+          description: "User not found"
+          schema:
+            $ref: "#/definitions/Error"
+
   /basket:
     get:
       summary: "Get all basket items"
       description: "Gibt alle Basket Items zurück."
+      security:
+        - Bearer: []
       responses:
         "200":
           description: "Liste der Basket Items"
@@ -27,6 +141,8 @@ paths:
     post:
       summary: "Add a basket item"
       description: "Fügt ein neues Basket Item hinzu oder inkrementiert die Menge, falls das Item bereits existiert."
+      security:
+        - Bearer: []
       parameters:
         - in: body
           name: body
@@ -54,6 +170,8 @@ paths:
     put:
       summary: "Update a basket item"
       description: "Aktualisiert die Menge (amount) eines Basket Items."
+      security:
+        - Bearer: []
       parameters:
         - in: body
           name: body
@@ -81,6 +199,8 @@ paths:
     delete:
       summary: "Delete a basket item"
       description: "Löscht ein Basket Item anhand der ID."
+      security:
+        - Bearer: []
       responses:
         "200":
           description: "Basket Item erfolgreich gelöscht"
@@ -95,6 +215,8 @@ paths:
     post:
       summary: "Add multiple storage items at once"
       description: "Fügt mehrere Storage Items gleichzeitig hinzu, inklusive deren Nährstoffdaten, sofern vorhanden."
+      security:
+        - Bearer: []
       parameters:
         - in: body
           name: body
@@ -108,10 +230,7 @@ paths:
         "201":
           description: "Items added successfully"
           schema:
-            type: object
-            properties:
-              message:
-                type: string
+            $ref: "#/definitions/SuccessMessage"
         "400":
           description: "Invalid input data"
           schema:
@@ -125,6 +244,8 @@ paths:
     get:
       summary: "Get all storage items"
       description: "Gibt alle Storage Items zurück. Optional kann über den Query-Parameter `q` nach Namen gesucht werden."
+      security:
+        - Bearer: []
       parameters:
         - in: query
           name: q
@@ -141,6 +262,8 @@ paths:
     post:
       summary: "Add a new storage item"
       description: "Fügt ein neues Storage Item hinzu. Optional können auch Nährstoff-Daten mitgesendet werden."
+      security:
+        - Bearer: []
       parameters:
         - in: body
           name: body
@@ -152,10 +275,7 @@ paths:
         "201":
           description: "Item added successfully"
           schema:
-            type: object
-            properties:
-              message:
-                type: string
+            $ref: "#/definitions/SuccessMessage"
         "400":
           description: "Invalid input data"
           schema:
@@ -169,6 +289,8 @@ paths:
     put:
       summary: "Update an existing storage item"
       description: "Aktualisiert ein bestehendes Storage Item anhand der übergebenen ID."
+      security:
+        - Bearer: []
       parameters:
         - name: item_id
           in: path
@@ -185,10 +307,7 @@ paths:
         "200":
           description: "Item updated successfully"
           schema:
-            type: object
-            properties:
-              message:
-                type: string
+            $ref: "#/definitions/SuccessMessage"
         "400":
           description: "Invalid input data"
           schema:
@@ -200,6 +319,8 @@ paths:
     get:
       summary: "Get a specific storage item by ID"
       description: "Gibt ein spezifisches Storage Item zurück, basierend auf der übergebenen ID."
+      security:
+        - Bearer: []
       parameters:
         - name: item_id
           in: path
@@ -215,11 +336,33 @@ paths:
           description: "Item not found"
           schema:
             $ref: "#/definitions/Error"
+    delete:
+      summary: "Delete a storage item"
+      description: "Löscht ein Storage Item anhand der ID."
+      security:
+        - Bearer: []
+      parameters:
+        - name: item_id
+          in: path
+          description: "Die ID des zu löschenden Storage Items."
+          required: true
+          type: integer
+      responses:
+        "200":
+          description: "Item deleted successfully"
+          schema:
+            $ref: "#/definitions/SuccessMessage"
+        "404":
+          description: "Item not found"
+          schema:
+            $ref: "#/definitions/Error"
 
   /items/{item_id}/nutrients:
     put:
       summary: "Update the nutrients for a specific storage item"
       description: "Aktualisiert die Nährstoff-Daten für das Storage Item mit der angegebenen ID. Bestehende Nährstoffdaten werden ersetzt."
+      security:
+        - Bearer: []
       parameters:
         - name: item_id
           in: path
@@ -236,10 +379,7 @@ paths:
         "200":
           description: "Nutrients updated successfully"
           schema:
-            type: object
-            properties:
-              message:
-                type: string
+            $ref: "#/definitions/SuccessMessage"
         "400":
           description: "Invalid input data"
           schema:
@@ -249,7 +389,165 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
+  /categories:
+    get:
+      summary: "Get all categories"
+      description: "Gibt alle Kategorien zurück."
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: "Liste der Kategorien"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Category"
+
+  /storage-locations:
+    get:
+      summary: "Get storage locations"
+      description: "Gibt alle Storage Locations zurück."
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: "Liste der Storage Locations"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/StorageLocation"
+
+  /item-units:
+    get:
+      summary: "Get item units"
+      description: "Gibt alle Item Units zurück."
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: "Liste der Item Units"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Unit"
+
+  /package-units:
+    get:
+      summary: "Get package units"
+      description: "Gibt alle Package Units zurück."
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: "Liste der Package Units"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Unit"
+
+  /nutrient-units:
+    get:
+      summary: "Get nutrient units"
+      description: "Gibt alle Nutrient Units zurück."
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: "Liste der Nutrient Units"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/Unit"
+
+security:
+  - Bearer: []
+
 definitions:
+  UserInput:
+    type: object
+    required:
+      - username
+      - password
+      - email
+    properties:
+      username:
+        type: string
+      password:
+        type: string
+      email:
+        type: string
+      image:
+        type: string
+  LoginInput:
+    type: object
+    required:
+      - email
+      - password
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+  TokenResponse:
+    type: object
+    properties:
+      access_token:
+        type: string
+  User:
+    type: object
+    properties:
+      id:
+        type: integer
+      username:
+        type: string
+      email:
+        type: string
+      image:
+        type: string
+  UserUpdate:
+    type: object
+    properties:
+      username:
+        type: string
+      email:
+        type: string
+      password:
+        type: string
+      image:
+        type: string
+  SuccessMessage:
+    type: object
+    properties:
+      message:
+        type: string
+  BasketItemInput:
+    type: object
+    required:
+      - name
+    properties:
+      name:
+        type: string
+      categories:
+        type: array
+        items:
+          type: string
+      icon:
+        type: string
+  BasketItem:
+    type: object
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      amount:
+        type: integer
+      categories:
+        type: array
+        items:
+          type: string
+      icon:
+        type: string
   StorageItemInput:
     type: object
     required:
@@ -284,7 +582,6 @@ definitions:
         type: string
       nutrients:
         $ref: "#/definitions/NutrientInput"
-
   StorageItemUpdate:
     type: object
     properties:
@@ -310,7 +607,6 @@ definitions:
         type: string
       icon:
         type: string
-
   StorageItem:
     type: object
     properties:
@@ -340,7 +636,6 @@ definitions:
         type: string
       nutrients:
         $ref: "#/definitions/Nutrient"
-
   NutrientInput:
     type: object
     required:
@@ -360,7 +655,6 @@ definitions:
         type: array
         items:
           $ref: "#/definitions/NutrientValueInput"
-
   Nutrient:
     type: object
     properties:
@@ -376,7 +670,6 @@ definitions:
         type: array
         items:
           $ref: "#/definitions/NutrientValue"
-
   NutrientValueInput:
     type: object
     required:
@@ -390,7 +683,6 @@ definitions:
         type: array
         items:
           $ref: "#/definitions/NutrientTypeInput"
-
   NutrientValue:
     type: object
     properties:
@@ -404,7 +696,6 @@ definitions:
         type: array
         items:
           $ref: "#/definitions/NutrientType"
-
   NutrientTypeInput:
     type: object
     required:
@@ -416,7 +707,6 @@ definitions:
         description: "Angabe des Einheitentyps, z.B. 'kcal', 'KJ' oder 'g'."
       value:
         type: number
-
   NutrientType:
     type: object
     properties:
@@ -426,37 +716,27 @@ definitions:
         type: string
       value:
         type: number
-
-  BasketItemInput:
-    type: object
-    required:
-      - name
-    properties:
-      name:
-        type: string
-      categories:
-        type: array
-        items:
-          type: string
-      icon:
-        type: string
-
-  BasketItem:
+  Category:
     type: object
     properties:
       id:
         type: integer
       name:
         type: string
-      amount:
+  StorageLocation:
+    type: object
+    properties:
+      id:
         type: integer
-      categories:
-        type: array
-        items:
-          type: string
-      icon:
+      name:
         type: string
-
+  Unit:
+    type: object
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
   Error:
     type: object
     properties:
