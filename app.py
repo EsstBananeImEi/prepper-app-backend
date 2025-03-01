@@ -446,7 +446,16 @@ def register():
 
     # Sicherstellen, dass E-Mail noch nicht vergeben ist
     if User.query.filter_by(email=data["email"].lower()).first():
-        return jsonify({"error": "User already exists"}), 409
+        return (
+            jsonify(
+                {"error": "Die E-Mail ist bereits mit einem anderen Account verknüpft."}
+            ),
+            409,
+        )
+
+    # Sicherstellen, dass Benutzername noch nicht vergeben ist
+    if User.query.filter_by(username=data["username"]).first():
+        return jsonify({"error": "Der Benutzername existiert bereits"}), 409
 
     user = User(username=data["username"])
     user.set_email(data["email"])
@@ -456,11 +465,11 @@ def register():
     user.activated = False  # Account zunächst inaktiv
 
     # Sende Aktivierungs-E-Mail
-    # try:
-    send_activation_email(user)
-    # except Exception as e:
-    #     print(e)
-    #     return jsonify({"error": "E-Mail konnte nicht gesendet werden."}), 500
+    try:
+        send_activation_email(user)
+    except Exception as e:
+        print(e)
+        return jsonify({"error": "E-Mail konnte nicht gesendet werden."}), 500
 
     db.session.add(user)
     db.session.commit()
@@ -516,9 +525,22 @@ def forgot_password():
     )
 
 
+@app.route("/reset-password/<token>", methods=["GET"])
+def reset_password_form(token):
+    try:
+        email = confirm_token(token, salt="reset-password")
+    except (SignatureExpired, BadSignature):
+        return jsonify({"error": "Link ungültig oder abgelaufen."}), 400
+
+    # Hier renderst du ein HTML-Formular, das das neue Passwort abfragt.
+    # Du kannst dafür ein Template (z. B. reset_password.html) nutzen.
+    return render_template("reset_password.html", token=token, email=email)
+
+
 @app.route("/reset-password/<token>", methods=["POST"])
 def reset_password(token):
-    data = request.get_json()
+    # Verwende request.form.to_dict() als Fallback, wenn JSON-Daten nicht vorliegen.
+    data = request.form.to_dict() if request.form else (request.get_json() or {})
     if not data or "password" not in data:
         return jsonify({"error": "Invalid input"}), 400
 
@@ -530,7 +552,12 @@ def reset_password(token):
     user = User.query.filter_by(email=email).first_or_404()
     user.set_password(data["password"])
     db.session.commit()
-    return jsonify({"message": "Passwort erfolgreich zurückgesetzt."}), 200
+
+    # Hole die Frontend-URL aus den Umgebungsvariablen (oder verwende einen Standardwert)
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    # Baue eine URL, z. B. /reset-success, die eine Erfolgsmeldung über Query-Parameter erhält
+    success_url = f"{frontend_url}/resetSuccess?resetSuccess=true&message=Passwort%20erfolgreich%20zurückgesetzt."
+    return redirect(success_url)
 
 
 @app.route("/login", methods=["POST"])
