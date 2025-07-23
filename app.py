@@ -1021,7 +1021,8 @@ def add_item():
     )
 
     if not new_item.icon or new_item.icon == "":
-        new_item.icon = get_icon_from_serpapi(new_item.name)
+        # setze prepper-app.svg als Standard-Icon in base64
+        new_item.icon = get_icon_as_base64("prepper-app.svg")
 
     db.session.add(new_item)
     db.session.flush()  # new_item.id verfügbar
@@ -1467,6 +1468,38 @@ def get_icon_from_serpapi(name):
         search = serpapi.search(params)
         return search["images_results"][0].get("thumbnail")
     except HTTPError as e:
+        return ""
+
+
+def get_icon_as_base64(filename):
+    # Wenn kein absoluter Pfad angegeben, suche im templates Ordner
+    if not os.path.isabs(filename):
+        filepath = os.path.join(app.root_path, "templates", filename)
+    else:
+        filepath = filename
+
+    try:
+        with open(filepath, "rb") as image_file:
+            file_data = image_file.read()
+            base64_string = base64.b64encode(file_data).decode("utf-8")
+
+            # Bestimme den MIME-Type basierend auf der Dateiendung
+            _, ext = os.path.splitext(filepath.lower())
+            if ext == ".svg":
+                mime_type = "image/svg+xml"
+            elif ext in [".jpg", ".jpeg"]:
+                mime_type = "image/jpeg"
+            elif ext == ".png":
+                mime_type = "image/png"
+            elif ext == ".gif":
+                mime_type = "image/gif"
+            else:
+                mime_type = "image/png"  # Fallback
+
+            # Returniere als Data-URL Format
+            return f"data:{mime_type};base64,{base64_string}"
+    except FileNotFoundError:
+        print(f"Icon-Datei nicht gefunden: {filepath}")
         return ""
 
 
