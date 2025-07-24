@@ -94,28 +94,28 @@ def seed_data():
             ]
         )
 
-    # Beispielgruppen erstellen
-    # if not Group.query.first() and admin_user and default_user_obj:
-    #     # Eine Beispielgruppe erstellen
-    #     example_group = Group(
-    #         name="Familie Schmidt",
-    #         description="Gemeinsame Vorräte für die Familie",
-    #         created_by=admin_user.id,
-    #     )
-    #     db.session.add(example_group)
-    #     db.session.commit()
+        # Beispielgruppen erstellen
+        # if not Group.query.first() and admin_user and default_user_obj:
+        #     # Eine Beispielgruppe erstellen
+        #     example_group = Group(
+        #         name="Familie Schmidt",
+        #         description="Gemeinsame Vorräte für die Familie",
+        #         created_by=admin_user.id,
+        #     )
+        #     db.session.add(example_group)
+        #     db.session.commit()
 
-    #     # Den Admin und den Default-User zur Gruppe hinzufügen
-    #     admin_membership = UserGroup(
-    #         user_id=admin_user.id, group_id=example_group.id, role="admin"
-    #     )
-    #     default_membership = UserGroup(
-    #         user_id=default_user_obj.id, group_id=example_group.id, role="member"
-    #     )
-    #     db.session.add_all([admin_membership, default_membership])
+        #     # Den Admin und den Default-User zur Gruppe hinzufügen
+        #     admin_membership = UserGroup(
+        #         user_id=admin_user.id, group_id=example_group.id, role="admin"
+        #     )
+        #     default_membership = UserGroup(
+        #         user_id=default_user_obj.id, group_id=example_group.id, role="member"
+        #     )
+        #     db.session.add_all([admin_membership, default_membership])
 
-    #     db.session.commit()
-    #     db.session.close()
+        db.session.commit()
+        db.session.close()
 
 
 with app.app_context():
