@@ -1,4 +1,5 @@
 import base64
+from datetime import datetime, timedelta
 from email.header import Header
 from functools import lru_cache
 import os
@@ -43,7 +44,9 @@ from flask_jwt_extended import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///storage.db"
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    os.getenv("DATABASE_URI") or "sqlite:///storage.db"
+)
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "TeStK3y123!")
@@ -100,6 +103,7 @@ class User(db.Model):
     basket_items: Mapped[List["BasketItem"]] = relationship(
         "BasketItem", backref="user"
     )
+    groups: Mapped[List["UserGroup"]] = relationship("UserGroup", backref="user")
 
     def __init__(self, username: str):
         self.username = username
@@ -115,6 +119,118 @@ class User(db.Model):
 
     def check_password(self, password: str) -> bool:
         return check_password_hash(self.password_hash, password)
+
+    def __to_dict__(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "email": self.email,
+            "image": self.image,
+            "admin": self.admin,
+            "persons": self.persons,
+            "activated": self.activated,
+            "groups": [group.id for group in self.groups],
+        }
+
+
+class UserGroup(db.Model):
+    __tablename__ = "user_group"
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False
+    )
+    group_id: Mapped[int] = mapped_column(
+        db.Integer, db.ForeignKey("group.id"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(db.String(50), default="member")  # admin, member
+    joined_at: Mapped[Optional[datetime]] = mapped_column(
+        db.DateTime, default=db.func.now()
+    )
+
+    # Beziehungen
+    group: Mapped["Group"] = relationship("Group", back_populates="members")
+
+    def __init__(self, user_id: int, group_id: int, role: str = "member"):
+        self.user_id = user_id
+        self.group_id = group_id
+        self.role = role
+
+
+class Group(db.Model):
+    __tablename__ = "group"
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(db.String(100), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(db.String(500))
+    image: Mapped[Optional[str]] = mapped_column(db.Text)  # Base64-kodiertes Bild
+    created_by: Mapped[int] = mapped_column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False
+    )
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        db.DateTime, default=db.func.now()
+    )
+    invite_code: Mapped[str] = mapped_column(db.String(10), unique=True, nullable=False)
+
+    # Beziehungen
+    members: Mapped[List["UserGroup"]] = relationship(
+        "UserGroup", back_populates="group"
+    )
+    creator: Mapped["User"] = relationship("User", foreign_keys=[created_by])
+
+    def __init__(
+        self, name: str, description: str, created_by: int, image: Optional[str] = None
+    ):
+        self.name = name
+        self.description = description
+        self.image = image
+        self.created_by = created_by
+        self.invite_code = self.generate_invite_code()
+
+    def generate_invite_code(self):
+        import random
+        import string
+
+        return "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+
+class GroupInvitation(db.Model):
+    __tablename__ = "group_invitation"
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(
+        db.Integer, db.ForeignKey("group.id"), nullable=False
+    )
+    invited_by: Mapped[int] = mapped_column(
+        db.Integer, db.ForeignKey("user.id"), nullable=False
+    )
+    invited_email: Mapped[str] = mapped_column(db.String(120), nullable=False)
+    invite_token: Mapped[str] = mapped_column(
+        db.String(100), unique=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        db.String(20), default="pending"
+    )  # pending, accepted, declined
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        db.DateTime, default=db.func.now()
+    )
+    expires_at: Mapped[Optional[datetime]] = mapped_column(db.DateTime)
+
+    # Beziehungen
+    group: Mapped["Group"] = relationship("Group")
+    inviter: Mapped["User"] = relationship("User")
+
+    def __init__(self, group_id: int, invited_by: int, invited_email: str):
+        self.group_id = group_id
+        self.invited_by = invited_by
+        self.invited_email = invited_email
+        self.invite_token = self.generate_invite_token()
+        # Einladung läuft nach 7 Tagen ab
+        from datetime import datetime, timedelta
+
+        self.expires_at = datetime.utcnow() + timedelta(days=7)
+
+    def generate_invite_token(self):
+        import secrets
+
+        return secrets.token_urlsafe(32)
 
 
 class StorageItem(db.Model):
@@ -340,7 +456,27 @@ class NutrientUnit(db.Model):
         self.user_id = user_id
 
 
-### Hilfsfunktionen ###
+def get_user_group_ids(user_id):
+    """Hilfsfunktion: Gibt alle Gruppen-IDs zurück, in denen der User Mitglied ist"""
+    user_groups = UserGroup.query.filter_by(user_id=user_id).all()
+    return [ug.group_id for ug in user_groups]
+
+
+def get_group_member_ids(user_id):
+    """Hilfsfunktion: Gibt alle User-IDs zurück, die in den gleichen Gruppen sind wie der aktuelle User"""
+    group_ids = get_user_group_ids(user_id)
+    if not group_ids:
+        return [user_id]  # Nur der User selbst
+
+    # Alle User in den gleichen Gruppen finden
+    group_members = UserGroup.query.filter(UserGroup.group_id.in_(group_ids)).all()
+    member_ids = list(set([gm.user_id for gm in group_members]))  # Duplikate entfernen
+
+    # Den aktuellen User immer hinzufügen
+    if user_id not in member_ids:
+        member_ids.append(user_id)
+
+    return member_ids
 
 
 def generate_token(email: str, salt: str) -> str:
@@ -431,6 +567,38 @@ def send_forgot_password_email(user: User):
         print(traceback.format_exc())
 
 
+def send_group_invitation_email(invitation: GroupInvitation):
+    """Sendet eine E-Mail-Einladung für eine Gruppe"""
+    group = invitation.group
+    inviter = invitation.inviter
+
+    # Join-URL erstellen
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    join_url = f"{frontend_url}/groups/join/{invitation.invite_token}"
+
+    html = render_template(
+        "group_invitation_mail.html",
+        inviter_name=inviter.username,
+        group_name=group.name,
+        group_description=group.description,
+        join_url=join_url,
+        invite_code=group.invite_code,
+        logo_base64=get_logo_base64(),
+        current_year=2025,
+    )
+
+    try:
+        send_email_smtp(
+            invitation.invited_email,
+            f"Einladung zur Gruppe '{group.name}' - Prepper App",
+            html,
+        )
+        print(f"Gruppeneinladung erfolgreich an {invitation.invited_email} gesendet.")
+    except Exception:
+        print("Detaillierter Fehler beim Senden der Gruppeneinladung:")
+        print(traceback.format_exc())
+
+
 ### ROUTENDEFINITIONEN ###
 ## AUTHENTICATION ##
 @app.route("/register", methods=["POST"])
@@ -463,6 +631,7 @@ def register():
     user.image = data.get("image") or None
     user.persons = data.get("persons") or 1
     user.activated = False  # Account zunächst inaktiv
+    user.groups = []  # Keine Gruppen zu Beginn
 
     # Sende Aktivierungs-E-Mail
     try:
@@ -474,17 +643,14 @@ def register():
     db.session.add(user)
     db.session.commit()
     return (
-        jsonify(
-            {
-                "message": "Registrierung erfolgreich. Bitte aktivieren Sie Ihren Account über den in Ihrer E-Mail enthaltenen Link."
-            }
-        ),
+        user.__to_dict__(),
         201,
     )
 
 
 @app.route("/activate-account/<token>", methods=["GET"])
 def activate_account(token):
+    print("Aktivierungslink empfangen:", token)
     try:
         email = confirm_token(token, salt="activate-account")
     except (SignatureExpired, BadSignature):
@@ -592,6 +758,8 @@ def login():
                 "persons": user.persons,
                 "access_token": access_token,
                 "refresh_token": refresh_token,
+                "isAdmin": user.admin,
+                "groups": [ug.group.name for ug in user.groups],
             }
         ),
         200,
@@ -621,6 +789,7 @@ def get_user():
                 "email": user.email.lower(),
                 "image": user.image,
                 "persons": user.persons,
+                "groups": [ug.group.name for ug in user.groups],
             }
         ),
         200,
@@ -674,6 +843,8 @@ def update_user():
                 "persons": user.persons,
                 "access_token": create_access_token(identity=str(user.id)),
                 "refresh_token": create_refresh_token(identity=str(user.id)),
+                "isAdmin": user.admin,
+                "groups": [ug.group.name for ug in user.groups],
             }
         ),
         200,
@@ -692,12 +863,432 @@ def delete_user():
     return jsonify({"message": "User deleted successfully"}), 200
 
 
+## GROUPS ##
+@app.route("/groups", methods=["GET"])
+@jwt_required()
+def get_user_groups():
+    """Alle Gruppen des Users abrufen"""
+    print("Get user groups called")
+    user_id = get_jwt_identity()
+    user_groups = UserGroup.query.filter_by(user_id=user_id).all()
+
+    groups_data = []
+    for ug in user_groups:
+        group = ug.group
+        # Anzahl der Mitglieder zählen
+        member_count = len(group.members)
+
+        groups_data.append(
+            {
+                "id": group.id,
+                "name": group.name,
+                "description": group.description,
+                "image": group.image,
+                "role": ug.role,
+                "memberCount": member_count,
+                "inviteCode": group.invite_code,
+                "isCreator": group.created_by == int(user_id),
+                "createdAt": group.created_at.isoformat() if group.created_at else None,
+            }
+        )
+
+    return jsonify(groups_data), 200
+
+
+@app.route("/groups", methods=["POST"])
+@jwt_required()
+def create_group():
+    """Neue Gruppe erstellen"""
+    user_id = get_jwt_identity()
+    data = request.get_json()
+
+    if not data or "name" not in data:
+        return jsonify({"error": "Group name is required"}), 400
+
+    # Prüfe ob eine Gruppe mit diesem Namen bereits existiert
+    existing_group = Group.query.filter_by(
+        name=data["name"], created_by=user_id
+    ).first()
+    if existing_group:
+        return jsonify({"error": "Group with this name already exists"}), 409
+
+    image = data.get("image")
+    if not image or not isinstance(image, str):
+        image = get_icon_as_base64("default_image.png")
+
+    # Neue Gruppe erstellen
+    new_group = Group(
+        name=data["name"],
+        description=data.get("description", ""),
+        image=image,
+        created_by=int(user_id),
+    )
+
+    db.session.add(new_group)
+    db.session.flush()  # Um die group.id zu bekommen
+
+    # Creator als Admin zur Gruppe hinzufügen
+    user_group = UserGroup(user_id=int(user_id), group_id=new_group.id, role="admin")
+
+    db.session.add(user_group)
+    db.session.commit()
+
+    return (
+        jsonify(
+            {
+                "id": new_group.id,
+                "name": new_group.name,
+                "description": new_group.description,
+                "image": new_group.image,
+                "inviteCode": new_group.invite_code,
+                "role": "admin",
+                "memberCount": 1,
+                "isCreator": True,
+            }
+        ),
+        201,
+    )
+
+
+# gruppe bearbeiten
+@app.route("/groups/<int:group_id>", methods=["PUT"])
+@jwt_required()
+def update_group(group_id):
+    print(f"Update group called with ID: {group_id}")
+    user_id = get_jwt_identity()
+    group = Group.query.get_or_404(group_id)
+
+    if group.created_by != int(user_id):
+        return jsonify({"error": "Only the group creator can update the group"}), 403
+    # print data aus der Anfrage
+    print(f"Request data: {request}")
+
+    data = request.get_json()
+    group.name = data.get("name", group.name)
+    group.description = data.get("description", group.description)
+
+    # Bild verarbeiten (falls vorhanden)
+    if "image" in data:
+        image_data = data.get("image")
+        if image_data and isinstance(image_data, str):
+            if image_data.startswith("data:image"):
+                # Validierung des Bildformats
+                content_type = image_data.split(";")[0]
+                if content_type in app.config["ALLOWED_CONTENT_TYPES"]:
+                    # Bildgröße prüfen (Base64-String zu Bytes)
+                    try:
+                        import base64
+
+                        header, encoded = image_data.split(",", 1)
+                        image_bytes = base64.b64decode(encoded)
+                        if len(image_bytes) <= 5 * 1024 * 1024:  # 5MB Limit
+                            group.image = image_data
+                        else:
+                            return (
+                                jsonify({"error": "Image size exceeds 5MB limit"}),
+                                400,
+                            )
+                    except Exception:
+                        return jsonify({"error": "Invalid image data"}), 400
+                else:
+                    return (
+                        jsonify(
+                            {
+                                "error": "Invalid image format. Only PNG, JPG, JPEG, GIF allowed"
+                            }
+                        ),
+                        400,
+                    )
+            elif image_data == "":
+                # Leerer String bedeutet Bild entfernen
+                group.image = None
+        else:
+            # None oder andere Werte bedeuten Bild entfernen
+            group.image = None
+
+    db.session.commit()
+
+    return jsonify({"message": "Group updated successfully"}), 200
+
+
+@app.route("/groups/<int:group_id>", methods=["DELETE"])
+@jwt_required()
+def delete_group(group_id):
+    """Gruppe löschen (nur Creator)"""
+    user_id = get_jwt_identity()
+    print(f"User ID: {user_id}, Group ID: {group_id}")
+    group = Group.query.get_or_404(group_id)
+
+    if group.created_by != int(user_id):
+        return jsonify({"error": "Only the group creator can delete the group"}), 403
+
+    # Zuerst alle UserGroup Einträge löschen
+    UserGroup.query.filter_by(group_id=group_id).delete()
+
+    # Dann alle GroupInvitation Einträge löschen
+    GroupInvitation.query.filter_by(group_id=group_id).delete()
+
+    # Schließlich die Gruppe selbst löschen
+    db.session.delete(group)
+    db.session.commit()
+
+    return jsonify({"message": "Group deleted successfully"}), 200
+
+
+@app.route("/groups/<int:group_id>/members", methods=["GET"])
+@jwt_required()
+def get_group_members(group_id):
+    """Gruppenmitglieder abrufen"""
+    user_id = get_jwt_identity()
+
+    # Prüfe ob User Mitglied der Gruppe ist
+    user_group = UserGroup.query.filter_by(user_id=user_id, group_id=group_id).first()
+    if not user_group:
+        return jsonify({"error": "You are not a member of this group"}), 403
+
+    members = UserGroup.query.filter_by(group_id=group_id).all()
+
+    members_data = []
+    for member in members:
+        user = User.query.get(member.user_id)
+        if user:  # Null-Prüfung hinzufügen
+            members_data.append(
+                {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "role": member.role,
+                    "joinedAt": (
+                        member.joined_at.isoformat() if member.joined_at else None
+                    ),
+                }
+            )
+
+    return jsonify(members_data), 200
+
+
+@app.route("/groups/join/<invite_code>", methods=["POST"])
+@jwt_required()
+def join_group_by_code(invite_code):
+    """Gruppe über Einladungscode beitreten"""
+    user_id = get_jwt_identity()
+
+    group = Group.query.filter_by(invite_code=invite_code).first()
+    if not group:
+        return jsonify({"error": "Invalid invite code"}), 404
+
+    # Prüfe ob User bereits Mitglied ist
+    existing_membership = UserGroup.query.filter_by(
+        user_id=user_id, group_id=group.id
+    ).first()
+    if existing_membership:
+        return jsonify({"error": "You are already a member of this group"}), 409
+
+    # User zur Gruppe hinzufügen
+    user_group = UserGroup(user_id=int(user_id), group_id=group.id, role="member")
+
+    db.session.add(user_group)
+    db.session.commit()
+
+    return (
+        jsonify(
+            {
+                "message": f"Successfully joined group '{group.name}'",
+                "group": {
+                    "id": group.id,
+                    "name": group.name,
+                    "description": group.description,
+                    "image": group.image,
+                    "role": "member",
+                },
+            }
+        ),
+        200,
+    )
+
+
+@app.route("/groups/<int:group_id>/invite", methods=["POST"])
+@jwt_required()
+def invite_to_group(group_id):
+    """User per E-Mail zur Gruppe einladen"""
+    user_id = get_jwt_identity()
+    data = request.get_json()
+
+    if not data or "email" not in data:
+        return jsonify({"error": "Email is required"}), 400
+
+    # Prüfe ob User Admin/Creator der Gruppe ist
+    user_group = UserGroup.query.filter_by(user_id=user_id, group_id=group_id).first()
+    if not user_group or user_group.role not in ["admin", "creator"]:
+        return jsonify({"error": "Only group admins can invite users"}), 403
+
+    group = Group.query.get_or_404(group_id)
+    invited_email = data["email"].lower()
+
+    # Prüfe ob bereits eine aktive Einladung existiert
+    existing_invite = GroupInvitation.query.filter_by(
+        group_id=group_id, invited_email=invited_email, status="pending"
+    ).first()
+
+    if existing_invite:
+        return jsonify({"error": "Invitation already sent to this email"}), 409
+
+    # Prüfe ob User bereits Mitglied ist
+    invited_user = User.query.filter_by(email=invited_email).first()
+    if invited_user:
+        existing_membership = UserGroup.query.filter_by(
+            user_id=invited_user.id, group_id=group_id
+        ).first()
+        if existing_membership:
+            return jsonify({"error": "User is already a member of this group"}), 409
+
+    # Neue Einladung erstellen
+    invitation = GroupInvitation(
+        group_id=group_id, invited_by=int(user_id), invited_email=invited_email
+    )
+
+    db.session.add(invitation)
+    db.session.commit()
+
+    # E-Mail senden
+    try:
+        send_group_invitation_email(invitation)
+    except Exception as e:
+        print(f"Fehler beim Senden der Einladungs-E-Mail: {e}")
+
+    return (
+        jsonify(
+            {
+                "message": f"Invitation sent to {invited_email}",
+                "inviteToken": invitation.invite_token,
+            }
+        ),
+        201,
+    )
+
+
+@app.route("/groups/join-invitation/<invite_token>", methods=["POST"])
+@jwt_required()
+def join_group_by_token(invite_token):
+    """Gruppe über E-Mail-Einladungstoken beitreten"""
+    user_id = get_jwt_identity()
+
+    invitation = GroupInvitation.query.filter_by(invite_token=invite_token).first()
+    if not invitation:
+        return jsonify({"error": "Invalid invitation token"}), 404
+
+    if invitation.status != "pending":
+        return jsonify({"error": "Invitation is no longer valid"}), 400
+
+    # Prüfe Ablauf
+    if invitation.expires_at and invitation.expires_at < datetime.utcnow():
+        return jsonify({"error": "Invitation has expired"}), 400
+
+    # Prüfe ob User bereits Mitglied ist
+    existing_membership = UserGroup.query.filter_by(
+        user_id=user_id, group_id=invitation.group_id
+    ).first()
+    if existing_membership:
+        return jsonify({"error": "You are already a member of this group"}), 409
+
+    # User zur Gruppe hinzufügen
+    user_group = UserGroup(
+        user_id=int(user_id), group_id=invitation.group_id, role="member"
+    )
+
+    # Einladung als akzeptiert markieren
+    invitation.status = "accepted"
+
+    db.session.add(user_group)
+    db.session.commit()
+
+    group = invitation.group
+    return (
+        jsonify(
+            {
+                "message": f"Successfully joined group '{group.name}'",
+                "group": {
+                    "id": group.id,
+                    "name": group.name,
+                    "description": group.description,
+                    "image": group.image,
+                    "role": "member",
+                },
+            }
+        ),
+        200,
+    )
+
+
+# route zum entfernen von benutzern
+@app.route("/groups/<int:group_id>/remove/<int:user_id>", methods=["POST"])
+@jwt_required()
+def remove_user_from_group(group_id, user_id):
+    """Entfernt einen User aus der Gruppe (nur Admins)"""
+    current_user_id = get_jwt_identity()
+
+    # Prüfe ob User Admin/Creator der Gruppe ist
+    user_group = UserGroup.query.filter_by(
+        user_id=current_user_id, group_id=group_id
+    ).first()
+    if not user_group or user_group.role not in ["admin", "creator"]:
+        return jsonify({"error": "Only group admins can remove users"}), 403
+
+    # Prüfe ob der zu entfernende User in der Gruppe ist
+    user_to_remove = UserGroup.query.filter_by(
+        user_id=user_id, group_id=group_id
+    ).first()
+    if not user_to_remove:
+        return jsonify({"error": "User is not a member of this group"}), 404
+
+    db.session.delete(user_to_remove)
+    db.session.commit()
+
+    return jsonify({"message": f"User {user_id} removed from group {group_id}"}), 200
+
+
+@app.route("/groups/<int:group_id>/leave", methods=["POST"])
+@jwt_required()
+def leave_group(group_id):
+    """Gruppe verlassen"""
+    user_id = get_jwt_identity()
+
+    user_group = UserGroup.query.filter_by(user_id=user_id, group_id=group_id).first()
+    if not user_group:
+        return jsonify({"error": "You are not a member of this group"}), 404
+
+    group = Group.query.get_or_404(group_id)
+
+    # Creator kann die Gruppe nicht verlassen, muss sie löschen
+    if group.created_by == int(user_id):
+        return (
+            jsonify(
+                {
+                    "error": "Group creator cannot leave the group. Delete the group instead."
+                }
+            ),
+            400,
+        )
+
+    db.session.delete(user_group)
+    db.session.commit()
+
+    return jsonify({"message": "Successfully left the group"}), 200
+
+
 ## BASKET ##
 @app.route("/basket", methods=["GET"])
 @jwt_required()
 def get_basket():
     user_id = get_jwt_identity()
-    items = db.session.query(BasketItem).filter_by(user_id=user_id).all()
+
+    # Alle User-IDs von Gruppenmitgliedern abrufen
+    accessible_user_ids = get_group_member_ids(int(user_id))
+    items = (
+        db.session.query(BasketItem)
+        .filter(BasketItem.user_id.in_(accessible_user_ids))
+        .all()
+    )
     return (
         jsonify(
             [
@@ -766,8 +1357,13 @@ def update_basket_item(item_id):
         return jsonify({"error": "Invalid input data"}), 400
 
     item = db.session.get(BasketItem, item_id)
-    if not item or str(item.user_id) != user_id:
-        return jsonify({"error": "Item not found or unauthorized"}), 404
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+
+    # Prüfen ob der User berechtigt ist (Besitzer oder Gruppenmitglied)
+    accessible_user_ids = get_group_member_ids(int(user_id))
+    if item.user_id not in accessible_user_ids:
+        return jsonify({"error": "Unauthorized"}), 403
 
     # increase amount
     item.amount = data["amount"]
@@ -799,8 +1395,14 @@ def delete_basket_item(item_id):
     user_id = get_jwt_identity()
     item = db.session.get(BasketItem, item_id)
     print(f"Item: {item} - User: {user_id}")
-    if not item or str(item.user_id) != user_id:
-        return jsonify({"error": "Item not found or unauthorized"}), 404
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+
+    # Prüfen ob der User berechtigt ist (Besitzer oder Gruppenmitglied)
+    accessible_user_ids = get_group_member_ids(int(user_id))
+    if item.user_id not in accessible_user_ids:
+        return jsonify({"error": "Unauthorized"}), 403
+
     print("Delete item")
     db.session.delete(item)
     print("Commit")
@@ -918,7 +1520,11 @@ def add_bulk_items():
 def get_items():
     user_id = get_jwt_identity()
     searchstring = request.args.get("q", "")
-    query = StorageItem.query.filter_by(user_id=user_id)
+
+    # Alle User-IDs aus den gleichen Gruppen holen
+    accessible_user_ids = get_group_member_ids(int(user_id))
+
+    query = StorageItem.query.filter(StorageItem.user_id.in_(accessible_user_ids))
 
     if searchstring:
         from sqlalchemy import func
@@ -944,6 +1550,9 @@ def get_items():
                     "packageUnit": item.packageUnit,
                     "storageLocation": item.storageLocation,
                     "icon": item.icon,
+                    "owner": item.user.username,  # Zeige den Besitzer des Items
+                    "isOwner": item.user_id
+                    == int(user_id),  # Zeige ob der aktuelle User der Besitzer ist
                     "nutrients": (
                         {
                             "id": item.nutrient.id,
@@ -1022,7 +1631,7 @@ def add_item():
 
     if not new_item.icon or new_item.icon == "":
         # setze prepper-app.svg als Standard-Icon in base64
-        new_item.icon = get_icon_as_base64("prepper-app.svg")
+        new_item.icon = get_icon_as_base64("default_image.png")
 
     db.session.add(new_item)
     db.session.flush()  # new_item.id verfügbar
@@ -1108,8 +1717,13 @@ def update_item(item_id):
         return jsonify({"error": "Invalid input data"}), 400
 
     item = db.session.get(StorageItem, item_id)
-    if not item or str(item.user_id) != user_id:
-        return jsonify({"error": "Item not found or unauthorized"}), 404
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+
+    # Prüfen ob der User berechtigt ist (Besitzer oder Gruppenmitglied)
+    accessible_user_ids = get_group_member_ids(int(user_id))
+    if item.user_id not in accessible_user_ids:
+        return jsonify({"error": "Unauthorized"}), 403
 
     item.name = data.get("name", item.name)
     item.amount = data.get("amount", item.amount)
@@ -1208,9 +1822,14 @@ def update_item(item_id):
 @jwt_required()
 def get_item(item_id):
     user_id = get_jwt_identity()
-    item = StorageItem.query.filter_by(id=item_id, user_id=user_id).first()
-    if not item or str(item.user_id) != user_id:
-        return jsonify({"error": "Item not found or unauthorized"}), 404
+    item = StorageItem.query.filter_by(id=item_id).first()
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+
+    # Prüfen ob der User berechtigt ist (Besitzer oder Gruppenmitglied)
+    accessible_user_ids = get_group_member_ids(int(user_id))
+    if item.user_id not in accessible_user_ids:
+        return jsonify({"error": "Unauthorized"}), 403
     return (
         jsonify(
             {
@@ -1257,10 +1876,13 @@ def get_item(item_id):
 @jwt_required()
 def delete_item(item_id):
     user_id = get_jwt_identity()
-    item = StorageItem.query.filter_by(id=item_id, user_id=user_id).first()
+    item = StorageItem.query.filter_by(id=item_id).first()
     if not item:
         return jsonify({"error": "Fehler beim Löschen des Items"}), 404
-    if str(item.user_id) != user_id:
+
+    # Prüfen ob der User berechtigt ist (Besitzer oder Gruppenmitglied)
+    accessible_user_ids = get_group_member_ids(int(user_id))
+    if item.user_id not in accessible_user_ids:
         return (
             jsonify({"error": "Sie sind nicht berechtigt, dieses Item zu löschen"}),
             403,
@@ -1281,9 +1903,14 @@ def update_nutrients(item_id):
         return jsonify({"error": "Invalid input data"}), 400
 
     nutrient_data = data
-    item = StorageItem.query.filter_by(id=item_id, user_id=user_id).first()
-    if not item or str(item.user_id) != user_id:
-        return jsonify({"error": "Item not found or unauthorized"}), 404
+    item = StorageItem.query.filter_by(id=item_id).first()
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+
+    # Prüfen ob der User berechtigt ist (Besitzer oder Gruppenmitglied)
+    accessible_user_ids = get_group_member_ids(int(user_id))
+    if item.user_id not in accessible_user_ids:
+        return jsonify({"error": "Unauthorized"}), 403
 
     nutrient = item.nutrient
 

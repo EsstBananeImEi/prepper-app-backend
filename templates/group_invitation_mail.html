@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gruppeneinladung - Prepper App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            max-width: 100px;
+            height: auto;
+        }
+
+        .content {
+            margin-bottom: 30px;
+        }
+
+        .button {
+            display: inline-block;
+            background-color: #007bff;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+
+        .button:hover {
+            background-color: #0056b3;
+        }
+
+        .invite-code {
+            background-color: #f8f9fa;
+            border: 2px dashed #dee2e6;
+            padding: 15px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+
+        .footer {
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+            margin-top: 30px;
+        }
+
+        .alternative {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="data:image/svg+xml;base64,{{ logo_base64 }}" alt="Prepper App Logo" class="logo">
+            <h1>Gruppeneinladung</h1>
+        </div>
+
+        <div class="content">
+            <p>Hallo!</p>
+
+            <p><strong>{{ inviter_name }}</strong> hat Sie zur Gruppe <strong>"{{ group_name }}"</strong> in der Prepper
+                App eingeladen.</p>
+
+            {% if group_description %}
+            <p><em>{{ group_description }}</em></p>
+            {% endif %}
+
+            <p>Als Gruppenmitglied können Sie:</p>
+            <ul>
+                <li>Die Lagerbestände aller Gruppenmitglieder einsehen</li>
+                <li>Gemeinsam Einkaufslisten verwalten</li>
+                <li>Sich gegenseitig bei der Vorratshaltung unterstützen</li>
+            </ul>
+
+            <div style="text-align: center;">
+                <a href="{{ join_url }}" class="button">Gruppe beitreten</a>
+            </div>
+
+            <div class="alternative">
+                <p><strong>Alternative:</strong> Falls der Button nicht funktioniert, können Sie auch den folgenden
+                    Einladungscode in der App eingeben:</p>
+                <div class="invite-code">{{ invite_code }}</div>
+                <p><small>Gehen Sie in der App zu "Gruppen" → "Gruppe beitreten" und geben Sie diesen Code ein.</small>
+                </p>
+            </div>
+
+            <p><small><strong>Hinweis:</strong> Diese Einladung ist 7 Tage gültig.</small></p>
+        </div>
+
+        <div class="footer">
+            <p>© {{ current_year }} Prepper App. Diese E-Mail wurde automatisch generiert.</p>
+            <p>Falls Sie diese Einladung nicht erwartet haben, können Sie sie einfach ignorieren.</p>
+        </div>
+    </div>
+</body>
+
+</html>
