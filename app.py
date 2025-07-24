@@ -3,6 +3,9 @@ from datetime import datetime, timedelta
 from email.header import Header
 from functools import lru_cache
 import os
+import random
+import secrets
+import string
 from smtplib import SMTPSenderRefused
 import traceback
 from typing import List, Optional, cast
@@ -44,9 +47,55 @@ from flask_jwt_extended import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 app = Flask(__name__)
-app.config["SQLALCHEMY_DATABASE_URI"] = (
-    os.getenv("DATABASE_URI") or "sqlite:///storage.db"
-)
+
+
+# Intelligente Database URI Konfiguration
+def get_database_uri():
+    """Erstellt eine korrekte SQLAlchemy Database URI und stellt sicher, dass das Verzeichnis existiert"""
+    database_uri = os.getenv("DATABASE_URI") or "sqlite:///storage.db"
+
+    # Wenn es sich um einen einfachen Dateipfad handelt, füge sqlite:/// hinzu
+    if not database_uri.startswith(
+        ("sqlite://", "postgresql://", "mysql://", "mysql+pymysql://")
+    ):
+        # Behandle sowohl absolute als auch relative Pfade
+        if os.path.isabs(database_uri):
+            database_uri = f"sqlite:///{database_uri}"
+        else:
+            database_uri = f"sqlite:///{database_uri}"
+
+    # Extrahiere den Dateipfad aus der URI für die Verzeichniserstellung (nur für SQLite)
+    if database_uri.startswith("sqlite:///"):
+        file_path = database_uri[10:]  # Entferne "sqlite:///"
+
+        # Konvertiere relative Pfade zu absoluten Pfaden
+        if not os.path.isabs(file_path):
+            file_path = os.path.abspath(file_path)
+            database_uri = f"sqlite:///{file_path}"
+
+        # Stelle sicher, dass das Verzeichnis existiert
+        directory = os.path.dirname(file_path)
+        if directory and directory != "." and not os.path.exists(directory):
+            try:
+                os.makedirs(directory, exist_ok=True)
+                print(f"Created database directory: {directory}")
+            except Exception as e:
+                print(f"Warning: Could not create database directory {directory}: {e}")
+                print(f"Current working directory: {os.getcwd()}")
+                print(f"Directory permissions needed for: {directory}")
+
+        # Prüfe ob das Verzeichnis beschreibbar ist
+        if directory and directory != "." and os.path.exists(directory):
+            if not os.access(directory, os.W_OK):
+                print(
+                    f"Warning: No write permission for database directory: {directory}"
+                )
+
+    print(f"Using database URI: {database_uri}")
+    return database_uri
+
+
+app.config["SQLALCHEMY_DATABASE_URI"] = get_database_uri()
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "TeStK3y123!")
@@ -2130,8 +2179,66 @@ def get_icon_as_base64(filename):
         return ""
 
 
+## HEALTH CHECK ##
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Health check endpoint zur Diagnose von Datenbankproblemen"""
+    try:
+        # Test Datenbankverbindung
+        db.session.execute(db.text("SELECT 1"))
+        return (
+            jsonify(
+                {
+                    "status": "healthy",
+                    "database": "connected",
+                    "database_uri": app.config["SQLALCHEMY_DATABASE_URI"],
+                }
+            ),
+            200,
+        )
+    except Exception as e:
+        return (
+            jsonify(
+                {
+                    "status": "unhealthy",
+                    "database": "disconnected",
+                    "error": str(e),
+                    "database_uri": app.config["SQLALCHEMY_DATABASE_URI"],
+                }
+            ),
+            500,
+        )
+
+
 if __name__ == "__main__":
     with app.app_context():
-        db.create_all()
+        try:
+            # Test database connection first
+            db.session.execute(db.text("SELECT 1"))
+            print("Database connection successful")
+
+            # Create tables
+            db.create_all()
+            print("Database tables created/verified")
+
+        except Exception as e:
+            print(f"Database initialization error: {e}")
+            print(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+            print(f"Current working directory: {os.getcwd()}")
+
+            # Try to provide helpful debugging information
+            if "sqlite:///" in app.config["SQLALCHEMY_DATABASE_URI"]:
+                db_path = app.config["SQLALCHEMY_DATABASE_URI"][10:]
+                db_dir = os.path.dirname(db_path) if db_path else "."
+                print(f"Database file path: {db_path}")
+                print(f"Database directory: {db_dir}")
+                print(
+                    f"Directory exists: {os.path.exists(db_dir) if db_dir != '.' else True}"
+                )
+                print(
+                    f"Directory writable: {os.access(db_dir, os.W_OK) if db_dir != '.' and os.path.exists(db_dir) else 'Unknown'}"
+                )
+
+            raise
 
     app.run(debug=True)
