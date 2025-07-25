@@ -1,7 +1,7 @@
 # Gunicorn Konfiguration für Prepper App
 
 # Server socket
-bind = "0.0.0.0:5000"
+bind = "0.0.0.0:4000"
 backlog = 2048
 
 # Worker processes
