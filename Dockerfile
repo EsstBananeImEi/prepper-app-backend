@@ -13,5 +13,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Kopiere den restlichen Code
 COPY . .
 
+# Erstelle Verzeichnis für Datenbank (falls lokal gespeichert)
+RUN mkdir -p /var/data && chmod 755 /var/data
+
+# Setze Umgebungsvariablen für Produktion
+ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 5000
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app"]
+
+# Verwende die Gunicorn-Konfiguration
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "app:application"]

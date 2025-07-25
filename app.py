@@ -120,7 +120,7 @@ app.config["ALLOWED_CONTENT_TYPES"] = {
 CORS(app)
 CORS(app, origins=[os.getenv("FRONTEND_URL") or "http://localhost:3000"])
 
-app_url = os.getenv("APP_URL") or "http://localhost:5000"
+app_url = os.getenv("APP_URL") or "http://localhost:4000"
 
 # Swagger initialisieren
 with open("swagger.yaml", "r") as f:
@@ -132,6 +132,66 @@ swagger = Swagger(app, template=swagger_template)
 jwt = JWTManager(app)
 mail = Mail(app)
 db = SQLAlchemy(app)
+
+
+### GLOBALE FEHLERBEHANDLER ###
+@app.errorhandler(400)
+def bad_request(error):
+    return jsonify({"error": "Bad Request"}), 400
+
+
+@app.errorhandler(401)
+def unauthorized(error):
+    return jsonify({"error": "Unauthorized"}), 401
+
+
+@app.errorhandler(403)
+def forbidden(error):
+    return jsonify({"error": "Forbidden"}), 403
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Not Found"}), 404
+
+
+@app.errorhandler(405)
+def method_not_allowed(error):
+    return jsonify({"error": "Method Not Allowed"}), 405
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    db.session.rollback()
+    return jsonify({"error": "Internal Server Error"}), 500
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Global exception handler für bessere Fehlerbehandlung in Produktion"""
+    # Log the error
+    app.logger.error(f"Unhandled exception: {str(e)}", exc_info=True)
+
+    # Rollback any pending database transactions
+    try:
+        db.session.rollback()
+    except:
+        pass
+
+    # Return JSON error response
+    return (
+        jsonify({"error": "Internal Server Error", "message": "Something went wrong"}),
+        500,
+    )
+
+
+# Request Timeout Handler
+@app.before_request
+def before_request():
+    """Request preprocessing - kann für Timeouts und Limits verwendet werden"""
+    # Set maximum request size (10MB)
+    if request.content_length and request.content_length > 10 * 1024 * 1024:
+        return jsonify({"error": "Request too large"}), 413
 
 
 ### MODELLDEFINITIONEN im SQLAlchemy 2.0-Stil ###
@@ -261,16 +321,26 @@ class GroupInvitation(db.Model):
         db.DateTime, default=db.func.now()
     )
     expires_at: Mapped[Optional[datetime]] = mapped_column(db.DateTime)
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(db.DateTime)
 
     # Beziehungen
     group: Mapped["Group"] = relationship("Group")
     inviter: Mapped["User"] = relationship("User")
+    invite_url: Mapped[Optional[str]] = mapped_column(db.String(500))
 
-    def __init__(self, group_id: int, invited_by: int, invited_email: str):
+    def __init__(
+        self,
+        group_id: int,
+        invited_by: int,
+        invited_email: str,
+        invite_token: str = "",
+        invite_url: str = "",
+    ):
         self.group_id = group_id
         self.invited_by = invited_by
         self.invited_email = invited_email
-        self.invite_token = self.generate_invite_token()
+        self.invite_token = invite_token or self.generate_invite_token()
+        self.invite_url = invite_url
         # Einladung läuft nach 7 Tagen ab
         from datetime import datetime, timedelta
 
@@ -616,6 +686,44 @@ def send_forgot_password_email(user: User):
         print(traceback.format_exc())
 
 
+def send_group_invitation_email_modern(invitation: GroupInvitation):
+    """Sendet eine E-Mail-Einladung für eine Gruppe mit neuem Token-System"""
+    group = invitation.group
+    inviter = invitation.inviter
+
+    # Verwende die vom Frontend bereitgestellte URL oder erstelle eine neue
+    if invitation.invite_url:
+        join_url = invitation.invite_url
+    else:
+        # Fallback: Erstelle URL mit neuem Format
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        join_url = f"{frontend_url}/invite/{invitation.invite_token}"
+
+    html = render_template(
+        "group_invitation_mail_modern.html",  # Neues Template
+        inviter_name=inviter.username,
+        group_name=group.name,
+        group_description=group.description,
+        join_url=join_url,  # Neue URL mit /invite/:token
+        invite_code=group.invite_code,  # Alter Code als Fallback
+        logo_base64=get_logo_base64(),
+        current_year=2025,
+    )
+
+    try:
+        send_email_smtp(
+            invitation.invited_email,
+            f"Einladung zur Gruppe '{group.name}' - Prepper App",
+            html,
+        )
+        print(
+            f"Moderne Gruppeneinladung erfolgreich an {invitation.invited_email} gesendet."
+        )
+    except Exception:
+        print("Detaillierter Fehler beim Senden der modernen Gruppeneinladung:")
+        print(traceback.format_exc())
+
+
 def send_group_invitation_email(invitation: GroupInvitation):
     """Sendet eine E-Mail-Einladung für eine Gruppe"""
     group = invitation.group
@@ -777,6 +885,7 @@ def reset_password(token):
 
 @app.route("/login", methods=["POST"])
 def login():
+    print("Login request received")
     data = request.get_json()
     if not data or "email" not in data or "password" not in data:
         return jsonify({"error": "Invalid input"}), 400
@@ -1159,11 +1268,12 @@ def join_group_by_code(invite_code):
 @app.route("/groups/<int:group_id>/invite", methods=["POST"])
 @jwt_required()
 def invite_to_group(group_id):
-    """User per E-Mail zur Gruppe einladen"""
+    print(f"Invite to group called with ID: {group_id}")
+    """User per E-Mail zur Gruppe einladen - Erweitert für neues Token-System"""
     user_id = get_jwt_identity()
     data = request.get_json()
 
-    if not data or "email" not in data:
+    if not data or "invitedEmail" not in data:
         return jsonify({"error": "Email is required"}), 400
 
     # Prüfe ob User Admin/Creator der Gruppe ist
@@ -1172,7 +1282,11 @@ def invite_to_group(group_id):
         return jsonify({"error": "Only group admins can invite users"}), 403
 
     group = Group.query.get_or_404(group_id)
-    invited_email = data["email"].lower()
+    invited_email = data["invitedEmail"].lower()
+
+    # Neue Token-System Integration
+    invite_token = data.get("inviteToken")  # Token vom Frontend
+    invite_url = data.get("inviteUrl")  # Vollständige URL vom Frontend
 
     # Prüfe ob bereits eine aktive Einladung existiert
     existing_invite = GroupInvitation.query.filter_by(
@@ -1191,17 +1305,21 @@ def invite_to_group(group_id):
         if existing_membership:
             return jsonify({"error": "User is already a member of this group"}), 409
 
-    # Neue Einladung erstellen
+    # Neue Einladung erstellen mit Token-System
     invitation = GroupInvitation(
-        group_id=group_id, invited_by=int(user_id), invited_email=invited_email
+        group_id=group_id,
+        invited_by=int(user_id),
+        invited_email=invited_email,
+        invite_token=invite_token,  # Verwende Frontend-Token
+        invite_url=invite_url,  # Verwende Frontend-URL
     )
 
     db.session.add(invitation)
     db.session.commit()
 
-    # E-Mail senden
+    # E-Mail senden mit neuer URL
     try:
-        send_group_invitation_email(invitation)
+        send_group_invitation_email_modern(invitation)
     except Exception as e:
         print(f"Fehler beim Senden der Einladungs-E-Mail: {e}")
 
@@ -1218,43 +1336,54 @@ def invite_to_group(group_id):
 
 @app.route("/groups/join-invitation/<invite_token>", methods=["POST"])
 @jwt_required()
-def join_group_by_token(invite_token):
-    """Gruppe über E-Mail-Einladungstoken beitreten"""
+def join_group_via_invitation(invite_token):
+    """Tritt einer Gruppe über Einladungstoken bei - Für Frontend-Integration"""
     user_id = get_jwt_identity()
 
+    print(f"User {user_id} versucht, über Token {invite_token} beizutreten")
+
     invitation = GroupInvitation.query.filter_by(invite_token=invite_token).first()
+
     if not invitation:
+        print(f"Token {invite_token} nicht gefunden")
         return jsonify({"error": "Invalid invitation token"}), 404
 
     if invitation.status != "pending":
+        print(f"Token {invite_token} nicht mehr gültig - Status: {invitation.status}")
         return jsonify({"error": "Invitation is no longer valid"}), 400
 
-    # Prüfe Ablauf
     if invitation.expires_at and invitation.expires_at < datetime.utcnow():
+        print(f"Token {invite_token} abgelaufen")
         return jsonify({"error": "Invitation has expired"}), 400
 
-    # Prüfe ob User bereits Mitglied ist
+    # Hole die Gruppe
+    group = invitation.group
+
+    # Prüfe ob User bereits in der Gruppe ist
     existing_membership = UserGroup.query.filter_by(
-        user_id=user_id, group_id=invitation.group_id
+        group_id=group.id, user_id=user_id
     ).first()
+
     if existing_membership:
+        print(f"User {user_id} ist bereits Mitglied der Gruppe {group.id}")
         return jsonify({"error": "You are already a member of this group"}), 409
 
-    # User zur Gruppe hinzufügen
-    user_group = UserGroup(
-        user_id=int(user_id), group_id=invitation.group_id, role="member"
-    )
+    # Erstelle neue Gruppenmitgliedschaft
+    user_group = UserGroup(user_id=int(user_id), group_id=group.id, role="member")
 
-    # Einladung als akzeptiert markieren
+    # Markiere Einladung als akzeptiert
     invitation.status = "accepted"
+    invitation.accepted_at = datetime.utcnow()
 
     db.session.add(user_group)
     db.session.commit()
 
-    group = invitation.group
+    print(f"User {user_id} erfolgreich der Gruppe {group.name} hinzugefügt")
+
     return (
         jsonify(
             {
+                "success": True,
                 "message": f"Successfully joined group '{group.name}'",
                 "group": {
                     "id": group.id,
@@ -1263,6 +1392,44 @@ def join_group_by_token(invite_token):
                     "image": group.image,
                     "role": "member",
                 },
+            }
+        ),
+        200,
+    )
+
+
+@app.route("/groups/validate-invitation/<invite_token>", methods=["GET"])
+def validate_invitation_token(invite_token):
+    """Validiert einen Einladungstoken ohne Login (für Frontend)"""
+    print(f"Validating invitation token: {invite_token}")
+    invitation = GroupInvitation.query.filter_by(invite_token=invite_token).first()
+
+    if not invitation:
+        print(f"Token {invite_token} nicht gefunden")
+        return jsonify({"error": "Invalid invitation token"}), 404
+
+    if invitation.status != "pending":
+        print(f"Token {invite_token} nicht mehr gültig - Status: {invitation.status}")
+        return jsonify({"error": "Invitation is no longer valid"}), 400
+
+    if invitation.expires_at and invitation.expires_at < datetime.utcnow():
+        print(f"Token {invite_token} abgelaufen")
+        return jsonify({"error": "Invitation has expired"}), 400
+
+    group = invitation.group
+    inviter = invitation.inviter
+
+    return (
+        jsonify(
+            {
+                "valid": True,
+                "groupId": group.id,
+                "groupName": group.name,
+                "groupDescription": group.description,
+                "inviterName": inviter.username,
+                "expiresAt": (
+                    invitation.expires_at.isoformat() if invitation.expires_at else None
+                ),
             }
         ),
         200,
@@ -2241,4 +2408,12 @@ if __name__ == "__main__":
 
             raise
 
-    app.run(debug=True)
+    # Nur im Development-Modus mit debug=True starten
+    # In Produktion wird Gunicorn verwendet
+    if os.getenv("FLASK_ENV") == "development":
+        app.run(debug=True, host="0.0.0.0", port=5000)
+    else:
+        print("App initialized successfully for production")
+
+# Für Gunicorn: App-Objekt exportieren
+application = app

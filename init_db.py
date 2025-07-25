@@ -21,12 +21,14 @@ def seed_data():
         user.set_email(os.getenv("ADMIN_EMAIL", "test"))
         user.activated = True
         user.set_role("admin")
+        user.groups = []
 
         default_user = User(username=os.getenv("DEFAULT_USERNAME", "default_user"))
         default_user.set_password(os.getenv("DEFAULT_PASSWORD", "default_user"))
         default_user.set_email(os.getenv("DEFAULT_EMAIL", "default_user"))
         default_user.activated = True
         default_user.set_role("user")
+        default_user.groups = []
 
         db.session.add_all([user, default_user])
         db.session.commit()

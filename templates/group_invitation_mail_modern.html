@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Gruppeinladung - Prepper App</title>
+</head>
+
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <img src="data:image/svg+xml;base64,{{ logo_base64 }}" alt="Prepper App" style="height: 60px;">
+        <h1 style="color: #1890ff; margin-top: 20px;">Gruppeneinladung</h1>
+    </div>
+
+    <div style="background: #f6f8fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; color: #333;">Du wurdest eingeladen!</h2>
+        <p><strong>{{ inviter_name }}</strong> hat dich zur Gruppe <strong>"{{ group_name }}"</strong> eingeladen.</p>
+        {% if group_description %}
+        <p style="color: #666; font-style: italic;">{{ group_description }}</p>
+        {% endif %}
+    </div>
+
+    <div style="text-align: center; margin: 30px 0;">
+        <a href="{{ join_url }}" style="display: inline-block; background: #1890ff; color: white; padding: 12px 30px; 
+                  text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
+            🏠 Gruppe beitreten
+        </a>
+    </div>
+
+    <div style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 30px; color: #666; font-size: 14px;">
+        <p><strong>So funktioniert's:</strong></p>
+        <ul>
+            <li>Klicke auf den Button "Gruppe beitreten"</li>
+            <li>Falls du bereits angemeldet bist, trittst du sofort bei</li>
+            <li>Falls nicht, wirst du zur Anmeldung weitergeleitet</li>
+            <li>Nach der Anmeldung wirst du automatisch der Gruppe hinzugefügt</li>
+        </ul>
+
+        <p style="margin-top: 20px;">
+            <strong>Alternative:</strong> Nutze den Einladungscode <code>{{ invite_code }}</code>
+            in der App unter "Gruppe beitreten".
+        </p>
+
+        <p style="text-align: center; margin-top: 30px; color: #999; font-size: 12px;">
+            © {{ current_year }} Prepper App - Gemeinsam vorbereitet sein
+        </p>
+    </div>
+</body>
+
+</html>
