@@ -341,10 +341,9 @@ class GroupInvitation(db.Model):
         self.invited_email = invited_email
         self.invite_token = invite_token or self.generate_invite_token()
         self.invite_url = invite_url
-        # Einladung läuft nach 7 Tagen ab
         from datetime import datetime, timedelta
 
-        self.expires_at = datetime.utcnow() + timedelta(days=7)
+        self.expires_at = datetime.utcnow() + timedelta(hours=24)
 
     def generate_invite_token(self):
         import secrets
@@ -876,9 +875,7 @@ def reset_password(token):
     user.set_password(data["password"])
     db.session.commit()
 
-    # Hole die Frontend-URL aus den Umgebungsvariablen (oder verwende einen Standardwert)
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-    # Baue eine URL, z. B. /reset-success, die eine Erfolgsmeldung über Query-Parameter erhält
     success_url = f"{frontend_url}/resetSuccess?resetSuccess=true&message=Passwort%20erfolgreich%20zurückgesetzt."
     return redirect(success_url)
 
