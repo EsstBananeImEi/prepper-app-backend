@@ -343,7 +343,7 @@ class GroupInvitation(db.Model):
         self.invite_url = invite_url
         from datetime import datetime, timedelta
 
-        self.expires_at = datetime.utcnow() + timedelta(hours=24)
+        self.expires_at = datetime.utcnow() + timedelta(hours=48)
 
     def generate_invite_token(self):
         import secrets
@@ -1259,6 +1259,52 @@ def join_group_by_code(invite_code):
             }
         ),
         200,
+    )
+
+
+@app.route("/groups/<int:group_id>/generate-invite-token", methods=["POST"])
+@jwt_required()
+def generate_invite_token(group_id):
+    """Generiert einen Invite-Token für eine Gruppe - Für Link-Sharing ohne E-Mail"""
+    user_id = get_jwt_identity()
+
+    print(f"Generate invite token called for group {group_id} by user {user_id}")
+
+    # Prüfe ob User Mitglied der Gruppe ist
+    user_group = UserGroup.query.filter_by(user_id=user_id, group_id=group_id).first()
+    if not user_group:
+        return jsonify({"error": "You are not a member of this group"}), 403
+
+    # Hole die Gruppe
+    group = Group.query.get_or_404(group_id)
+
+    # ✅ KEINE Prüfung ob User bereits Mitglied ist - das ist für Link-Sharing gedacht
+    # ✅ Auch bestehende Gruppenmitglieder können Links generieren
+
+    # Erstelle neuen Invite-Token (ohne E-Mail)
+    invitation = GroupInvitation(
+        group_id=group_id,
+        invited_by=int(user_id),
+        invited_email="",  # Leer für Token-only Generation
+        invite_token="",  # Wird automatisch generiert
+        invite_url="",  # Wird vom Frontend gesetzt
+    )
+
+    db.session.add(invitation)
+    db.session.commit()
+
+    print(f"Generated invite token: {invitation.invite_token}")
+
+    return (
+        jsonify(
+            {
+                "message": "Invite token generated successfully",
+                "inviteToken": invitation.invite_token,
+                "expiresAt": invitation.expires_at,
+                "groupName": group.name,
+            }
+        ),
+        201,
     )
 
 
