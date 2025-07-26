@@ -697,7 +697,7 @@ def send_group_invitation_email_modern(invitation: GroupInvitation):
         # Fallback: Erstelle URL mit neuem Format
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
         join_url = f"{frontend_url}/invite/{invitation.invite_token}"
-
+    print(f"Join URL: {join_url}")
     html = render_template(
         "group_invitation_mail_modern.html",  # Neues Template
         inviter_name=inviter.username,
